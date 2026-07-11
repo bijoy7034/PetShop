@@ -7,4 +7,4 @@ router = APIRouter(prefix="/health", tags=["health"])
 async def health():
     if not mongo_manager.ping():
         return {"status": "error", "message": "MongoDB connection failed"}
-    return {"status": "ok"}
+    return {"status": "ok", "MongoDB": "ok", "message": "Service is healthy"}

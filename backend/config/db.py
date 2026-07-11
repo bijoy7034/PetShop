@@ -35,6 +35,15 @@ class MongoManager:
         AuditRepository.ensure_indexes()
         logger.info("Indexes ensured: users, sessions, audit_log")
 
+    def ping(self):
+        if self._client is None:
+            return False
+        try:
+            self._client.admin.command("ping")
+            return True
+        except Exception as e:
+            logger.error(f"MongoDB ping failed: {e}")
+            return False
     def close(self):
         if self._client is not None:
             self._client.close()
