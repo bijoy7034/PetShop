@@ -14,7 +14,6 @@ bearer_scheme = HTTPBearer(
     auto_error=False,
 )
 
-
 def _decode(token):
     try:
         return jwt.decode(
