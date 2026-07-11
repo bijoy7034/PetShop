@@ -1,9 +1,3 @@
-"""First-boot admin bootstrap.
-
-If `ADMIN_EMAIL` is set and no user with that email exists, create an admin
-account with `ADMIN_PASSWORD` and `must_change_password=True`. Idempotent —
-safe to call on every startup. Called from `app.py` lifespan.
-"""
 from config.config import settings
 from config.logging.logger import logger
 from enums.user import Role

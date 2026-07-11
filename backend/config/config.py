@@ -21,22 +21,19 @@ class Settings(BaseSettings):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
 
-    # Runtime
     MODE: str = "development"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"
 
-    # MongoDB
     MONGO_URI: str = "mongodb://localhost:27017"
     DB_NAME: str = "petshop"
     MONGO_MAX_POOL_SIZE: int = 50
     MONGO_MIN_POOL_SIZE: int = 5
 
-    # CORS
+
     CORS_ALLOW_ORIGINS: list[str] = ["http://localhost:5173"]
 
-    # JWT
     JWT_SECRET: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
     JWT_AUDIENCE: str | None = None
@@ -44,7 +41,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_TTL_MINUTES: int = 15
     REFRESH_TOKEN_TTL_DAYS: int = 14
 
-    # Cookies
+
     COOKIE_SECURE: bool = True
     COOKIE_SAMESITE: str = "lax"
     COOKIE_DOMAIN: str | None = None
@@ -53,12 +50,12 @@ class Settings(BaseSettings):
     CSRF_COOKIE_NAME: str = "petshop_csrf"
     CSRF_HEADER_NAME: str = "X-CSRF-Token"
 
-    # Collections
+
     USERS_COLL: str = "users"
     SESSIONS_COLL: str = "sessions"
     AUDIT_COLL: str = "audit_log"
 
-    # First-boot admin bootstrap. Empty → skipped.
+
     ADMIN_EMAIL: str = ""
     ADMIN_PASSWORD: str = ""
     ADMIN_NAME: str = ""

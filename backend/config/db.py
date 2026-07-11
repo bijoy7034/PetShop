@@ -3,6 +3,9 @@ from pymongo.database import Database
 
 from config.logging.logger import logger
 
+from repository.audit_repo import AuditRepository
+from repository.session_repo import SessionRepository
+from repository.user_repo import UserRepository
 
 class MongoManager:
     _client: MongoClient | None = None
@@ -24,10 +27,7 @@ class MongoManager:
         self._client.admin.command("ping")
         logger.info(f"MongoDB connected: db={settings.DB_NAME}")
 
-        # Lazy import to avoid circular imports (repos import from config.db).
-        from repository.audit_repo import AuditRepository
-        from repository.session_repo import SessionRepository
-        from repository.user_repo import UserRepository
+       
 
         UserRepository.ensure_indexes()
         SessionRepository.ensure_indexes()
