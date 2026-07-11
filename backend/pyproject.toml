@@ -1,0 +1,29 @@
+[project]
+name = "petshop-backend"
+version = "0.1.0"
+description = "Pet Shop Inventory Management backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pymongo>=4.6.0",
+    "python-dotenv>=1.0.1",
+    "pyjwt>=2.13.0",
+    "bcrypt>=4.1.0",
+    "email-validator>=2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.5.0",
+    "ruff>=0.4.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
