@@ -1,8 +1,17 @@
+import certifi
 from pymongo import MongoClient
 from pymongo.database import Database
-import certifi
 
 from config.logging.logger import logger
+
+
+def _needs_tls(uri):
+    """Atlas (mongodb+srv://) and explicit tls=true URIs need a CA bundle;
+    plain mongodb://... running locally without TLS must NOT get tlsCAFile —
+    passing it forces the handshake and the server rejects with
+    UNEXPECTED_EOF_WHILE_READING."""
+    u = (uri or "").lower()
+    return u.startswith("mongodb+srv://") or "tls=true" in u or "ssl=true" in u
 
 
 class MongoManager:
@@ -14,13 +23,16 @@ class MongoManager:
             return
         from config.config import settings
 
-        self._client = MongoClient(
-            settings.MONGO_URI,
-            maxPoolSize=settings.MONGO_MAX_POOL_SIZE,
-            minPoolSize=settings.MONGO_MIN_POOL_SIZE,
-            uuidRepresentation="standard",
-            tlsCAFile=certifi.where(),
-        )
+        kwargs = {
+            "maxPoolSize": settings.MONGO_MAX_POOL_SIZE,
+            "minPoolSize": settings.MONGO_MIN_POOL_SIZE,
+            "uuidRepresentation": "standard",
+            "serverSelectionTimeoutMS": 5000,
+        }
+        if _needs_tls(settings.MONGO_URI):
+            kwargs["tlsCAFile"] = certifi.where()
+
+        self._client = MongoClient(settings.MONGO_URI, **kwargs)
         self._db = self._client[settings.DB_NAME]
 
         self._client.admin.command("ping")
