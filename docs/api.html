@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pet Shop API — Endpoints & Sample Data</title>
+<style>
+  :root {
+    --bg: #0f1114;
+    --panel: #171a1f;
+    --border: #262a31;
+    --text: #d9dee6;
+    --muted: #8992a3;
+    --accent: #4f9dff;
+    --get: #4f9dff;
+    --post: #4ec9b0;
+    --patch: #d19a66;
+    --delete: #e06c75;
+    --code-bg: #0b0d10;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --panel: #f6f7f9;
+      --border: #dfe3ea;
+      --text: #1a1e26;
+      --muted: #5b6474;
+      --accent: #1f6feb;
+      --code-bg: #f0f2f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+  nav {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 20px 16px;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 14px;
+  }
+  nav h1 { font-size: 15px; margin: 0 0 12px; letter-spacing: 0.2px; }
+  nav .base { font-size: 12px; color: var(--muted); word-break: break-all; margin-bottom: 20px; }
+  nav ul { list-style: none; padding: 0; margin: 0 0 14px; }
+  nav li { margin: 2px 0; }
+  nav a {
+    color: var(--text);
+    text-decoration: none;
+    display: block;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  nav a:hover { background: var(--code-bg); color: var(--accent); }
+  nav .group { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 4px; padding: 0 8px; }
+  main { padding: 28px 40px 80px; max-width: 1080px; }
+  h2 { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-top: 36px; }
+  h3 { margin-top: 28px; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  code, pre, kbd {
+    font-family: "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+    font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    margin: 8px 0 14px;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  pre code { padding: 0; border: 0; background: transparent; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .endpoint {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 14px 0;
+  }
+  .endpoint h4 {
+    margin: 0 0 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .method {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #0b0d10;
+    letter-spacing: 0.5px;
+  }
+  .method.GET { background: var(--get); }
+  .method.POST { background: var(--post); }
+  .method.PATCH { background: var(--patch); }
+  .method.DELETE { background: var(--delete); }
+  .role {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .endpoint p { margin: 6px 0; }
+  .endpoint .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 4px; }
+  .callout {
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    margin: 14px 0;
+    border-radius: 4px;
+  }
+  a { color: var(--accent); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; }
+    nav { position: static; height: auto; }
+    .grid-2 { grid-template-columns: 1fr; }
+    main { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>Pet Shop API</h1>
+  <div class="base">Base: <code>http://localhost:8000/api</code></div>
+
+  <div class="group">Getting started</div>
+  <ul>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#auth-flow">Auth flow</a></li>
+    <li><a href="#seed-data">Seed data</a></li>
+    <li><a href="#e2e">End-to-end recipe</a></li>
+  </ul>
+
+  <div class="group">Endpoints</div>
+  <ul>
+    <li><a href="#health">Health</a></li>
+    <li><a href="#auth">Auth</a></li>
+    <li><a href="#users">Users</a></li>
+    <li><a href="#categories">Categories</a></li>
+    <li><a href="#products">Products</a></li>
+    <li><a href="#stores">Stores</a></li>
+    <li><a href="#attendance">Attendance</a></li>
+    <li><a href="#orders">Orders</a></li>
+  </ul>
+
+  <div class="group">Reference</div>
+  <ul>
+    <li><a href="#enums">Enums &amp; status</a></li>
+    <li><a href="#errors">Errors</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<h1 id="overview" style="margin-top:8px">Pet Shop Wholesale Inventory API</h1>
+<p class="muted">FastAPI + MongoDB backend. 31 endpoints across 8 domains. All state-changing endpoints require an auth cookie + CSRF header.</p>
+
+<h2>Stack &amp; base URL</h2>
+<table>
+  <tr><th>Base URL</th><td><code>http://localhost:8000/api</code></td></tr>
+  <tr><th>Auth</th><td>HttpOnly cookie <code>petshop_access</code> (JWT) + <code>petshop_refresh</code> + <code>petshop_csrf</code></td></tr>
+  <tr><th>CSRF header</th><td><code>X-CSRF-Token</code> (value = <code>petshop_csrf</code> cookie) — required on POST/PATCH/DELETE</td></tr>
+  <tr><th>Content type</th><td><code>application/json</code> (except <code>POST /products/bulk-upload</code>: <code>multipart/form-data</code>)</td></tr>
+  <tr><th>Roles</th><td><code>admin</code>, <code>office_staff</code>, <code>sales_rep</code></td></tr>
+</table>
+
+<h2 id="auth-flow">Auth flow</h2>
+<ol>
+  <li>Set <code>ADMIN_EMAIL</code>/<code>ADMIN_PASSWORD</code>/<code>ADMIN_NAME</code> in <code>backend/.env</code> — the first admin is seeded on startup with <code>must_change_password: true</code>.</li>
+  <li><code>POST /api/auth/login</code> with email+password. Server sets 3 cookies. Response body has the user profile + TTL.</li>
+  <li>Admin calls <code>POST /api/users</code> to create <code>office_staff</code> and <code>sales_rep</code> accounts (server returns a one-time temp password).</li>
+  <li>New users log in and immediately <code>POST /api/auth/change-password</code>.</li>
+  <li>The frontend axios interceptor reads <code>petshop_csrf</code> cookie and sends it back as <code>X-CSRF-Token</code> on every mutation.</li>
+</ol>
+
+<div class="callout">
+  <strong>cURL note.</strong> The examples below assume you have logged in and captured cookies in <code>cookies.txt</code>. Every write flag pattern is:
+  <pre>curl -b cookies.txt -c cookies.txt \
+     -H "Content-Type: application/json" \
+     -H "X-CSRF-Token: $(grep petshop_csrf cookies.txt | awk '{print $NF}')" \
+     -X POST http://localhost:8000/api/&hellip; -d '&hellip;json&hellip;'</pre>
+</div>
+
+<h3>Sample: login</h3>
+<pre><code>curl -c cookies.txt -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/api/auth/login \
+  -d '{"email":"owner@petshop.local","password":"OwnerPass1234"}'</code></pre>
+<p class="label">Response 200</p>
+<pre><code>{
+  "token_type": "cookie",
+  "expires_in_seconds": 900,
+  "user": {
+    "_id": "66aabb0102030405060708",
+    "email": "owner@petshop.local",
+    "name": "Owner",
+    "role": "admin",
+    "status": "active",
+    "must_change_password": true,
+    "created_at": "2026-07-12T10:00:00Z",
+    "updated_at": "2026-07-12T10:00:00Z"
+  }
+}</code></pre>
+
+<h2 id="seed-data">Seed data (copy-paste ready)</h2>
+<p>Assumes you have an admin logged in. Run these in order.</p>
+
+<h3>1) Create staff accounts</h3>
+<pre><code>// Office staff
+POST /api/users
+{
+  "email": "office@petshop.local",
+  "name": "Priya (Office)",
+  "role": "office_staff",
+  "phone": "+91-98450-11111"
+}
+
+// Sales representative
+POST /api/users
+{
+  "email": "rep@petshop.local",
+  "name": "Arjun (Field Rep)",
+  "role": "sales_rep",
+  "phone": "+91-98450-22222"
+}</code></pre>
+<p class="muted">Response contains <code>temporary_password</code> — give it to the user; they must change on first login.</p>
+
+<h3>2) Categories &amp; subcategories (office)</h3>
+<pre><code>POST /api/categories  { "name": "Dog Food",    "description": "Kibble, wet food, treats" }
+POST /api/categories  { "name": "Cat Food",    "description": "Kibble, wet food, treats" }
+POST /api/categories  { "name": "Toys",        "description": "Chew, fetch, puzzle" }
+POST /api/categories  { "name": "Grooming",    "description": "Shampoo, brushes, clippers" }
+POST /api/categories  { "name": "Accessories", "description": "Leashes, bowls, collars" }
+
+// Subcategories (attach to the returned category IDs)
+POST /api/categories/{cat_id}/subcategories  { "name": "Dry kibble" }
+POST /api/categories/{cat_id}/subcategories  { "name": "Wet food" }
+POST /api/categories/{cat_id}/subcategories  { "name": "Treats" }</code></pre>
+
+<h3>3) Products with variants (office)</h3>
+<pre><code>POST /api/products
+{
+  "name": "Pedigree Adult Chicken &amp; Vegetables",
+  "category_id": "{dog_food_id}",
+  "subcategory_id": "{dry_kibble_id}",
+  "description": "Adult dog food with real chicken and vegetables.",
+  "base_price": 350,
+  "discount_price": null,
+  "variants": [
+    { "size": "1kg",  "sku": "PED-CHK-1K",  "price": 350,  "stock": 200 },
+    { "size": "3kg",  "sku": "PED-CHK-3K",  "price": 950,  "stock": 120 },
+    { "size": "10kg", "sku": "PED-CHK-10K", "price": 2900, "discount_price": 2750, "stock": 40 }
+  ]
+}
+
+POST /api/products
+{
+  "name": "Whiskas Ocean Fish",
+  "category_id": "{cat_food_id}",
+  "subcategory_id": "{dry_kibble_id}",
+  "base_price": 280,
+  "variants": [
+    { "size": "450g", "sku": "WSK-OF-450",  "price": 280,  "stock": 180 },
+    { "size": "1.2kg","sku": "WSK-OF-1200", "price": 620,  "stock": 90 },
+    { "size": "3kg",  "sku": "WSK-OF-3K",   "price": 1400, "stock": 40 }
+  ]
+}
+
+POST /api/products
+{
+  "name": "Kong Classic Rubber Toy",
+  "category_id": "{toys_id}",
+  "base_price": 550,
+  "variants": [
+    { "size": "Small",  "color": "Red", "sku": "KNG-CL-S", "price": 550,  "stock": 60 },
+    { "size": "Medium", "color": "Red", "sku": "KNG-CL-M", "price": 750,  "stock": 45 },
+    { "size": "Large",  "color": "Red", "sku": "KNG-CL-L", "price": 1050, "stock": 20 }
+  ]
+}</code></pre>
+
+<h3>3b) Or bulk-upload from Excel</h3>
+<p>Headers accepted (case-insensitive): <code>name</code>, <code>category</code>, <code>subcategory</code>, <code>description</code>, <code>base_price</code>, <code>discount_price</code>, <code>variant_size</code>, <code>variant_weight</code>, <code>variant_color</code>, <code>variant_sku</code>, <code>variant_price</code>, <code>variant_discount_price</code>, <code>variant_stock</code>.</p>
+<p>Rows sharing the same <code>name</code> are merged into one product with multiple variants.</p>
+
+<h3>4) Sales rep adds a store</h3>
+<pre><code>// Login as sales_rep first, then:
+POST /api/stores
+{
+  "name": "Happy Pets Corner",
+  "location": "MG Road, Bengaluru",
+  "contact": {
+    "name": "Rohit Menon",
+    "phone": "+91-99450-33333",
+    "email": "rohit@happypets.example"
+  },
+  "geo": { "lat": 12.9716, "lng": 77.5946 },
+  "email": "orders@happypets.example",
+  "gst_number": "29ABCDE1234F1Z5",
+  "notes": "Prefers deliveries before 11am"
+}</code></pre>
+<p class="muted">Store is created with status <code>pending</code>. Sales rep cannot place orders or mark attendance until office approves.</p>
+
+<h3>5) Office approves the store</h3>
+<pre><code>// Login as office_staff, then:
+POST /api/stores/{store_id}/approve
+{ "credit_limit": 100000 }</code></pre>
+
+<h3>6) Sales rep visits the store and marks attendance</h3>
+<pre><code>POST /api/attendance
+{
+  "store_id": "{store_id}",
+  "lat": 12.9717,      // within 100m of stored 12.9716
+  "lng": 77.5947,
+  "notes": "Weekly visit; discussed new arrivals"
+}</code></pre>
+<p class="muted">Fails with <code>400</code> if outside 100m or if store status ≠ <code>approved</code>.</p>
+
+<h3>7) Sales rep places an order</h3>
+<pre><code>POST /api/orders
+{
+  "store_id": "{store_id}",
+  "notes": "Monthly restock",
+  "lines": [
+    { "product_id": "{pedigree_id}", "variant_id": "{ped_3k_id}",  "qty": 5 },
+    { "product_id": "{whiskas_id}",  "variant_id": "{wsk_1200_id}", "qty": 8 },
+    { "product_id": "{kong_id}",     "variant_id": "{kong_m_id}",  "qty": 4 }
+  ]
+}</code></pre>
+<p class="muted">Server computes <code>total</code>, checks <code>credit_used + total ≤ credit_limit</code>, holds the credit, and creates the order in <code>placed</code> status.</p>
+
+<h3>8) Office progresses the order</h3>
+<pre><code>POST /api/orders/{order_id}/accept    // decrements variant stock atomically
+POST /api/orders/{order_id}/pack
+POST /api/orders/{order_id}/dispatch
+POST /api/orders/{order_id}/deliver</code></pre>
+
+<h3>Cancel (sales rep, only before accept)</h3>
+<pre><code>POST /api/orders/{order_id}/cancel
+{ "reason": "Store changed their mind" }</code></pre>
+
+<h2 id="e2e">End-to-end test recipe</h2>
+<ol>
+  <li>Start Mongo &amp; the backend. Confirm <code>GET /api/health</code> → 200.</li>
+  <li>Log in as admin (from env-seeded account). Change password.</li>
+  <li>Create office and sales-rep accounts. Log each in on a separate cookie jar and change passwords.</li>
+  <li>As office: create categories + subcategories, then products with variants.</li>
+  <li>As sales_rep: create a store. As office: approve with a credit limit.</li>
+  <li>As sales_rep: mark attendance (test both success within 100m and failure outside).</li>
+  <li>As sales_rep: place an order under the credit limit. Try one over — must fail.</li>
+  <li>As sales_rep: cancel the order. Verify <code>credit_used</code> on the store dropped back to 0.</li>
+  <li>Place a fresh order. As office: accept → pack → dispatch → deliver. After accept, confirm variant stock decremented.</li>
+  <li><code>GET /api/orders/{id}</code> — inspect <code>history[]</code> for the full audit trail.</li>
+</ol>
+
+<!-- ========== HEALTH ========== -->
+<h2 id="health">Health</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/health <span class="role">public</span></h4>
+  <p>Ping the service. Also pings Mongo.</p>
+  <p class="label">Response 200</p>
+  <pre><code>{ "status": "ok", "MongoDB": "ok", "message": "Service is healthy" }</code></pre>
+</div>
+
+<!-- ========== AUTH ========== -->
+<h2 id="auth">Auth</h2>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/auth/login <span class="role">public</span></h4>
+  <p>Exchange email + password for a session. Sets three cookies.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "email": "owner@petshop.local", "password": "OwnerPass1234" }</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{ "token_type": "cookie", "expires_in_seconds": 900, "user": { ... } }</code></pre>
+  <p class="label">Errors</p>
+  <ul>
+    <li><code>401</code> — bad email/password</li>
+    <li><code>403</code> — account inactive</li>
+  </ul>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/auth/refresh <span class="role">public</span></h4>
+  <p>Rotate the session using the refresh cookie. Returns a new access token and rotated refresh cookie. Reusing a rotated refresh wipes all sessions for that user.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/auth/me <span class="role">any user</span></h4>
+  <p>Fetch the caller's profile.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/auth/change-password <span class="role">any user</span></h4>
+  <p>Rotate the caller's password. Revokes all other sessions on success.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "current_password": "old", "new_password": "at-least-ten" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/auth/logout <span class="role">any user</span></h4>
+  <p>Revoke the current session and clear cookies.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/auth/logout-all <span class="role">any user</span></h4>
+  <p>Revoke every session for the caller (across all devices).</p>
+</div>
+
+<!-- ========== USERS ========== -->
+<h2 id="users">Users</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/users <span class="role">any user</span></h4>
+  <p>List users. Query: <code>role</code>, <code>status</code>, <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/users/{user_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/users <span class="role">admin</span></h4>
+  <p>Create a new user. If <code>password</code> is omitted, server generates a one-time password and returns it; the account is flagged <code>must_change_password</code>.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "email": "office@petshop.local",
+  "name": "Priya (Office)",
+  "role": "office_staff",
+  "phone": "+91-98450-11111"
+}</code></pre>
+  <p class="label">Response 201</p>
+  <pre><code>{
+  "user": { "_id": "...", "email": "office@petshop.local", "role": "office_staff", ... },
+  "temporary_password": "aB3xYz…"
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/users/{user_id} <span class="role">admin</span></h4>
+  <p>Partial update. Fields: <code>name</code>, <code>role</code>, <code>phone</code>, <code>status</code>, <code>password</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/users/{user_id} <span class="role">admin</span></h4>
+  <p>Hard-delete. Refuses if the caller is deleting themselves.</p>
+</div>
+
+<!-- ========== CATEGORIES ========== -->
+<h2 id="categories">Categories</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/categories <span class="role">any user</span></h4>
+  <p>Query: <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/categories/{cat_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/categories <span class="role">office</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{ "name": "Dog Food", "description": "Kibble, wet food, treats" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/categories/{cat_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/categories/{cat_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/categories/{cat_id}/subcategories <span class="role">office</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{ "name": "Dry kibble" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/categories/{cat_id}/subcategories/{sub_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/categories/{cat_id}/subcategories/{sub_id} <span class="role">office</span></h4>
+</div>
+
+<!-- ========== PRODUCTS ========== -->
+<h2 id="products">Products</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/products <span class="role">any user</span></h4>
+  <p>Query: <code>category_id</code>, <code>subcategory_id</code>, <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/products/{product_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/products <span class="role">office</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{
+  "name": "Pedigree Adult Chicken &amp; Vegetables",
+  "category_id": "{cat_id}",
+  "subcategory_id": "{sub_id}",
+  "description": "Adult dog food with real chicken and vegetables.",
+  "base_price": 350,
+  "discount_price": null,
+  "variants": [
+    { "size": "1kg", "sku": "PED-CHK-1K", "price": 350, "stock": 200 },
+    { "size": "3kg", "sku": "PED-CHK-3K", "price": 950, "stock": 120 }
+  ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/products/{product_id} <span class="role">office</span></h4>
+  <p>Patch product-level fields. Variants are managed via the sub-routes below.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/products/{product_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/products/{product_id}/variants <span class="role">office</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{ "size": "10kg", "sku": "PED-CHK-10K", "price": 2900, "discount_price": 2750, "stock": 40 }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/products/{product_id}/variants/{variant_id} <span class="role">office</span></h4>
+  <p>Patch any of <code>size, weight, color, sku, price, discount_price</code>. Stock is not patched here — use the endpoint below.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/products/{product_id}/variants/{variant_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/products/{product_id}/variants/{variant_id}/adjust-stock <span class="role">office</span></h4>
+  <p>Atomic bump. Refuses to go below zero.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "delta": -3, "reason": "Damaged during unloading" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/products/bulk-upload <span class="role">office</span></h4>
+  <p><code>multipart/form-data</code> with a <code>file</code> field (.xlsx). Max 5 MB.</p>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "created": 2, "updated": 1, "failed": 1,
+  "rows": [
+    { "row": 2, "action": "created", "product_name": "Pedigree Adult Chicken &amp; Vegetables" },
+    { "row": 5, "action": "updated", "product_name": "Whiskas Ocean Fish" },
+    { "row": 7, "action": "failed",  "product_name": "Bogus", "error": "Unknown category 'Foobar'" }
+  ]
+}</code></pre>
+</div>
+
+<!-- ========== STORES ========== -->
+<h2 id="stores">Stores</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores <span class="role">any user</span></h4>
+  <p>Sales rep sees only their own stores. Office/admin see all. Query: <code>status</code>, <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/{store_id} <span class="role">owner sales_rep or office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores <span class="role">sales_rep</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{
+  "name": "Happy Pets Corner",
+  "location": "MG Road, Bengaluru",
+  "contact": { "name": "Rohit Menon", "phone": "+91-99450-33333", "email": "rohit@happypets.example" },
+  "geo": { "lat": 12.9716, "lng": 77.5946 },
+  "email": "orders@happypets.example",
+  "gst_number": "29ABCDE1234F1Z5",
+  "notes": "Prefers deliveries before 11am"
+}</code></pre>
+  <p class="muted">Created in <code>status: pending</code> with <code>credit_limit: 0</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/stores/{store_id} <span class="role">owner sales_rep or office</span></h4>
+  <p>Partial update. Sales rep can only edit their own store.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/stores/{store_id} <span class="role">office</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores/{store_id}/approve <span class="role">office</span></h4>
+  <p>Approves the store and sets/updates the credit limit.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "credit_limit": 100000 }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores/{store_id}/reject <span class="role">office</span></h4>
+  <p class="label">Body</p>
+  <pre><code>{ "reason": "Duplicate of existing store record" }</code></pre>
+</div>
+
+<!-- ========== ATTENDANCE ========== -->
+<h2 id="attendance">Attendance</h2>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/attendance <span class="role">sales_rep</span></h4>
+  <p>Mark a visit. Server verifies the rep owns the store, the store is approved, and the caller is within <strong>100 m</strong> of the store's saved geo.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "store_id": "{store_id}",
+  "lat": 12.9717,
+  "lng": 77.5947,
+  "notes": "Weekly visit"
+}</code></pre>
+  <p class="label">Errors</p>
+  <ul>
+    <li><code>404</code> — store not found or not owned by caller</li>
+    <li><code>400</code> — store not approved</li>
+    <li><code>400</code> — outside 100 m (message includes actual distance)</li>
+  </ul>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/attendance <span class="role">any user</span></h4>
+  <p>Sales rep sees only their own records (the <code>user_id</code> query param is ignored for them). Office/admin can filter freely. Query: <code>store_id</code>, <code>user_id</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<!-- ========== ORDERS ========== -->
+<h2 id="orders">Orders</h2>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/orders <span class="role">any user</span></h4>
+  <p>Sales rep sees only their own orders. Office/admin see all. Query: <code>store_id</code>, <code>status</code>, <code>page</code>, <code>page_size</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/orders/{order_id} <span class="role">owner sales_rep or office</span></h4>
+  <p>Returns the full order incl. <code>history[]</code> — every status transition with actor + timestamp. This is what the office order detail UI should render as a step tracker.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders <span class="role">sales_rep</span></h4>
+  <p>Place an order. Server prices every line, sums the total, and enforces <code>credit_used + total ≤ credit_limit</code>. Credit is held until cancel or write-off.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "store_id": "{store_id}",
+  "notes": "Monthly restock",
+  "lines": [
+    { "product_id": "{pedigree_id}", "variant_id": "{ped_3k_id}",   "qty": 5 },
+    { "product_id": "{whiskas_id}",  "variant_id": "{wsk_1200_id}", "qty": 8 }
+  ]
+}</code></pre>
+  <p class="label">Response 201 (excerpt)</p>
+  <pre><code>{
+  "_id": "6a12…",
+  "store_id": "…",
+  "owner_id": "…",
+  "status": "placed",
+  "total": 9710.00,
+  "lines": [
+    { "product_id": "…", "product_name": "Pedigree…", "variant_id": "…",
+      "variant_label": "3kg / SKU PED-CHK-3K", "qty": 5, "unit_price": 950, "line_total": 4750 },
+    { "product_id": "…", "product_name": "Whiskas Ocean Fish", "variant_id": "…",
+      "variant_label": "1.2kg / SKU WSK-OF-1200", "qty": 8, "unit_price": 620, "line_total": 4960 }
+  ],
+  "history": [ { "status": "placed", "at": "2026-07-12T…", "by_user_id": "…", "by_user_name": "Arjun" } ],
+  "created_at": "…", "updated_at": "…"
+}</code></pre>
+  <p class="label">Errors</p>
+  <ul>
+    <li><code>404</code> — store not owned by caller</li>
+    <li><code>400</code> — store not approved / variant not found / insufficient stock / credit exceeded</li>
+  </ul>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/cancel <span class="role">owner sales_rep or office</span></h4>
+  <p>Only allowed while status is <code>placed</code>. Releases the credit hold.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "reason": "Store changed their mind" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/accept <span class="role">office</span></h4>
+  <p>Transitions <code>placed → accepted</code> and <strong>atomically decrements variant stock</strong> for every line. If any line underflows mid-way (concurrent order), rolls back and returns 409.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/pack <span class="role">office</span></h4>
+  <p><code>accepted → packing</code></p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/dispatch <span class="role">office</span></h4>
+  <p><code>packing → out_for_delivery</code></p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/deliver <span class="role">office</span></h4>
+  <p><code>out_for_delivery → delivered</code></p>
+</div>
+
+<!-- ========== REFERENCE ========== -->
+<h2 id="enums">Enums &amp; status</h2>
+
+<div class="grid-2">
+  <div>
+    <h3>Role</h3>
+    <ul>
+      <li><code>admin</code></li>
+      <li><code>office_staff</code></li>
+      <li><code>sales_rep</code></li>
+    </ul>
+  </div>
+  <div>
+    <h3>UserStatus</h3>
+    <ul>
+      <li><code>active</code></li>
+      <li><code>inactive</code></li>
+    </ul>
+  </div>
+  <div>
+    <h3>StoreStatus</h3>
+    <ul>
+      <li><code>pending</code></li>
+      <li><code>approved</code></li>
+      <li><code>rejected</code></li>
+    </ul>
+  </div>
+  <div>
+    <h3>OrderStatus</h3>
+    <ul>
+      <li><code>placed</code> → <code>accepted</code> → <code>packing</code> → <code>out_for_delivery</code> → <code>delivered</code></li>
+      <li><code>cancelled</code> (only from <code>placed</code>)</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Roles vs. write endpoints</h3>
+<table>
+  <tr><th>Action</th><th>admin</th><th>office_staff</th><th>sales_rep</th></tr>
+  <tr><td>Manage users</td><td>✓</td><td></td><td></td></tr>
+  <tr><td>Categories &amp; products CRUD</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>View products &amp; stores</td><td>✓</td><td>✓</td><td>✓ (own stores only)</td></tr>
+  <tr><td>Create store</td><td></td><td></td><td>✓</td></tr>
+  <tr><td>Approve store / set credit</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Mark attendance</td><td></td><td></td><td>✓</td></tr>
+  <tr><td>Place / cancel order</td><td></td><td></td><td>✓</td></tr>
+  <tr><td>Accept → deliver order</td><td>✓</td><td>✓</td><td></td></tr>
+</table>
+
+<h2 id="errors">Errors</h2>
+<table>
+  <tr><th>Code</th><th>Meaning</th></tr>
+  <tr><td>400</td><td>Business rule violation (over credit, out of stock, geo-fence, illegal transition). <code>detail</code> is human-readable.</td></tr>
+  <tr><td>401</td><td>Missing / expired access cookie.</td></tr>
+  <tr><td>403</td><td>Insufficient role, or CSRF token missing/mismatched on a write.</td></tr>
+  <tr><td>404</td><td>Resource not found — or not visible to the caller (sales rep looking at someone else's store).</td></tr>
+  <tr><td>409</td><td>Conflict (duplicate name, credit-hold race, concurrent stock underflow on accept).</td></tr>
+  <tr><td>422</td><td>Schema validation. Response body: <code>{ "detail": "&hellip;humanised message&hellip;" }</code>.</td></tr>
+</table>
+
+</main>
+</body>
+</html>
