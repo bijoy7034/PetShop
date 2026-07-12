@@ -3,8 +3,8 @@ from enum import StrEnum
 
 class Role(StrEnum):
     ADMIN = "admin"
-    MANAGER = "manager"
-    CASHIER = "cashier"
+    OFFICE_STAFF = "office_staff"
+    SALES_REP = "sales_rep"
 
 
 class UserStatus(StrEnum):

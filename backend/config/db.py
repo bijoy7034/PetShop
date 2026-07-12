@@ -26,14 +26,27 @@ class MongoManager:
         self._client.admin.command("ping")
         logger.info(f"MongoDB connected: db={settings.DB_NAME}")
 
+        from repository.attendance_repo import AttendanceRepository
         from repository.audit_repo import AuditRepository
+        from repository.category_repo import CategoryRepository
+        from repository.order_repo import OrderRepository
+        from repository.product_repo import ProductRepository
         from repository.session_repo import SessionRepository
+        from repository.store_repo import StoreRepository
         from repository.user_repo import UserRepository
 
         UserRepository.ensure_indexes()
         SessionRepository.ensure_indexes()
         AuditRepository.ensure_indexes()
-        logger.info("Indexes ensured: users, sessions, audit_log")
+        CategoryRepository.ensure_indexes()
+        ProductRepository.ensure_indexes()
+        StoreRepository.ensure_indexes()
+        AttendanceRepository.ensure_indexes()
+        OrderRepository.ensure_indexes()
+        logger.info(
+            "Indexes ensured: users, sessions, audit_log, categories, "
+            "products, stores, attendance, orders"
+        )
 
     def ping(self):
         if self._client is None:

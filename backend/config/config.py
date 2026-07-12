@@ -54,7 +54,15 @@ class Settings(BaseSettings):
     USERS_COLL: str = "users"
     SESSIONS_COLL: str = "sessions"
     AUDIT_COLL: str = "audit_log"
+    CATEGORIES_COLL: str = "categories"
+    PRODUCTS_COLL: str = "products"
+    STORES_COLL: str = "stores"
+    ATTENDANCE_COLL: str = "attendance"
+    ORDERS_COLL: str = "orders"
 
+    # Attendance geo-fence radius in metres. Sales rep must be within this
+    # distance of the store's saved coordinates to mark attendance.
+    ATTENDANCE_GEOFENCE_METERS: float = 100.0
 
     ADMIN_EMAIL: str = ""
     ADMIN_PASSWORD: str = ""

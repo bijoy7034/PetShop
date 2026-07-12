@@ -78,6 +78,7 @@ def require_roles(*allowed):
     return _dep
 
 
-require_any_user = require_roles("admin", "manager", "cashier")
-require_manager = require_roles("admin", "manager")
+require_any_user = require_roles("admin", "office_staff", "sales_rep")
+require_office = require_roles("admin", "office_staff")
 require_admin = require_roles("admin")
+require_sales_rep = require_roles("sales_rep")
