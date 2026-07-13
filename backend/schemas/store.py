@@ -44,6 +44,10 @@ class StoreReject(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class StoreAssign(BaseModel):
+    sales_rep_id: str
+
+
 class Store(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -55,8 +59,8 @@ class Store(BaseModel):
     email: EmailStr | None = None
     gst_number: str | None = None
     notes: str | None = None
-    owner_id: str
-    owner_name: str | None = None
+    sales_rep_id: str
+    sales_rep_name: str | None = None
     status: StoreStatus = StoreStatus.PENDING
     credit_limit: float = 0.0
     credit_used: float = 0.0

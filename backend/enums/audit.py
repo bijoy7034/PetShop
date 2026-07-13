@@ -6,6 +6,7 @@ class ResourceType(StrEnum):
     AUTH = "auth"
     CATEGORY = "category"
     PRODUCT = "product"
+    INVENTORY = "inventory"
     STORE = "store"
     ATTENDANCE = "attendance"
     ORDER = "order"
@@ -47,12 +48,20 @@ class AuditAction(StrEnum):
     VARIANT_DELETE = "product.variant.delete"
     VARIANT_STOCK_ADJUST = "product.variant.stock_adjust"
 
+    # inventory (per-variant stock ledger)
+    INVENTORY_ADJUST = "inventory.adjust"
+    INVENTORY_REORDER_SET = "inventory.reorder_set"
+    INVENTORY_RESERVE = "inventory.reserve"
+    INVENTORY_RELEASE = "inventory.release"
+    INVENTORY_COMMIT = "inventory.commit"
+
     # store lifecycle
     STORE_CREATE = "store.create"
     STORE_UPDATE = "store.update"
     STORE_DELETE = "store.delete"
     STORE_APPROVE = "store.approve"
     STORE_REJECT = "store.reject"
+    STORE_ASSIGN = "store.assign"
 
     # attendance
     ATTENDANCE_MARK = "attendance.mark"

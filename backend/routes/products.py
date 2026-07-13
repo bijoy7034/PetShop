@@ -12,7 +12,8 @@ from fastapi import (
 from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_any_user, require_office
 from repository.category_repo import CategoryRepository
-from repository.product_repo import ProductRepository
+from repository.inventory_repo import InventoryRepository
+from repository.product_repo import ProductRepository, variant_label
 from repository.subcategory_repo import SubcategoryRepository
 from schemas.product import (
     BulkUploadResponse,
@@ -47,6 +48,56 @@ def _resolve_subcategory(subcategory_id):
     return sub, cat
 
 
+def _seed_inventory_for(product, seeds):
+    """After a product is inserted (or a variant added), create the matching
+    inventory rows. Idempotent per-variant."""
+    if not seeds:
+        return
+    for s in seeds:
+        InventoryRepository.create(
+            product_id=product["_id"],
+            variant_id=s["variant_id"],
+            variant_label=s.get("variant_label"),
+            product_name=product["name"],
+            quantity_on_hand=s.get("initial_stock") or 0,
+            reorder_level=s.get("reorder_level") or 0,
+        )
+
+
+def _with_inventory(product):
+    """Hydrate each variant with live inventory counts. One find() covers all
+    variants of one product."""
+    if not product:
+        return product
+    variants = product.get("variants") or []
+    variant_ids = [v["id"] for v in variants]
+    counts = InventoryRepository.by_variant_ids(variant_ids)
+    for v in variants:
+        inv = counts.get(v["id"])
+        if inv:
+            v["quantity_on_hand"] = inv["quantity_on_hand"]
+            v["reserved_quantity"] = inv["reserved_quantity"]
+            v["available"] = inv["available"]
+            v["reorder_level"] = inv["reorder_level"]
+    return product
+
+
+def _many_with_inventory(products):
+    if not products:
+        return products
+    all_variant_ids = [v["id"] for p in products for v in p.get("variants") or []]
+    counts = InventoryRepository.by_variant_ids(all_variant_ids)
+    for p in products:
+        for v in p.get("variants") or []:
+            inv = counts.get(v["id"])
+            if inv:
+                v["quantity_on_hand"] = inv["quantity_on_hand"]
+                v["reserved_quantity"] = inv["reserved_quantity"]
+                v["available"] = inv["available"]
+                v["reorder_level"] = inv["reorder_level"]
+    return products
+
+
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     category_id: str | None = Query(None),
@@ -64,6 +115,7 @@ async def list_products(
         skip=skip,
         limit=page_size,
     )
+    items = _many_with_inventory(items)
     return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -72,7 +124,7 @@ async def get_product(product_id: str, _=Depends(require_any_user)):
     p = ProductRepository.by_id(product_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    return p
+    return _with_inventory(p)
 
 
 @router.post("", response_model=Product, status_code=status.HTTP_201_CREATED)
@@ -95,6 +147,8 @@ async def create_product(
         discount_price=payload.discount_price,
         variants=variants,
     )
+    seeds = p.pop("_inventory_seed", [])
+    _seed_inventory_for(p, seeds)
     record(
         AuditAction.PRODUCT_CREATE,
         ResourceType.PRODUCT,
@@ -108,7 +162,7 @@ async def create_product(
         },
         request=request,
     )
-    return p
+    return _with_inventory(p)
 
 
 @router.patch("/{product_id}", response_model=Product)
@@ -123,8 +177,6 @@ async def update_product(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
     patch = payload.model_dump(exclude_unset=True)
 
-    # Moving the product to a different subcategory: re-resolve its parent
-    # so category_id + denormalised names stay consistent.
     if "subcategory_id" in patch and patch["subcategory_id"] is not None:
         sub, cat = _resolve_subcategory(patch["subcategory_id"])
         patch["subcategory_name"] = sub["name"]
@@ -132,6 +184,9 @@ async def update_product(
         patch["category_name"] = cat["name"]
 
     after = ProductRepository.update(product_id, patch)
+    # Keep denormalised product_name on every inventory row in sync.
+    if "name" in patch and patch["name"] and patch["name"] != before["name"]:
+        InventoryRepository.refresh_product_name(product_id, patch["name"])
     record(
         AuditAction.PRODUCT_UPDATE,
         ResourceType.PRODUCT,
@@ -141,7 +196,7 @@ async def update_product(
         after={k: after.get(k) for k in patch},
         request=request,
     )
-    return after
+    return _with_inventory(after)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -154,6 +209,7 @@ async def delete_product(
     if not before:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
     ProductRepository.delete(product_id)
+    InventoryRepository.delete_by_product(product_id)
     record(
         AuditAction.PRODUCT_DELETE,
         ResourceType.PRODUCT,
@@ -176,18 +232,28 @@ async def add_variant(
     request: Request,
     current=Depends(require_office),
 ):
-    if not ProductRepository.by_id(product_id):
+    p = ProductRepository.by_id(product_id)
+    if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    after = ProductRepository.add_variant(product_id, payload.model_dump())
+    after, seed = ProductRepository.add_variant(product_id, payload.model_dump())
+    if seed:
+        InventoryRepository.create(
+            product_id=product_id,
+            variant_id=seed["variant_id"],
+            variant_label=seed["variant_label"],
+            product_name=after["name"],
+            quantity_on_hand=seed["initial_stock"],
+            reorder_level=seed["reorder_level"],
+        )
     record(
         AuditAction.VARIANT_CREATE,
         ResourceType.PRODUCT,
         resource_id=product_id,
         actor=current["user"],
-        after=payload.model_dump(),
+        after={**payload.model_dump(), "variant_id": seed["variant_id"] if seed else None},
         request=request,
     )
-    return after
+    return _with_inventory(after)
 
 
 @router.patch(
@@ -205,6 +271,14 @@ async def update_variant(
     after = ProductRepository.update_variant(product_id, variant_id, patch)
     if after is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+    # If any of the identity fields changed, refresh the label on the
+    # inventory row so reports stay readable.
+    if any(k in patch for k in ("size", "weight", "color", "sku")):
+        variant = next((v for v in after["variants"] if v["id"] == variant_id), None)
+        if variant:
+            InventoryRepository.refresh_labels(
+                variant_id, variant_label=variant_label(variant)
+            )
     record(
         AuditAction.VARIANT_UPDATE,
         ResourceType.PRODUCT,
@@ -213,7 +287,7 @@ async def update_variant(
         after={"variant_id": variant_id, **patch},
         request=request,
     )
-    return after
+    return _with_inventory(after)
 
 
 @router.delete(
@@ -230,6 +304,7 @@ async def delete_variant(
     if not p or not any(v["id"] == variant_id for v in p["variants"]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
     ProductRepository.remove_variant(product_id, variant_id)
+    InventoryRepository.delete_by_variant(variant_id)
     record(
         AuditAction.VARIANT_DELETE,
         ResourceType.PRODUCT,
@@ -252,29 +327,33 @@ async def adjust_variant_stock(
     request: Request,
     current=Depends(require_office),
 ):
+    """Legacy URL — delegates to inventory. Stock lives in the inventory
+    collection, not on the variant document."""
     if payload.delta == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Delta cannot be zero")
-    after = ProductRepository.adjust_stock(product_id, variant_id, payload.delta)
-    if after is None:
-        # Either the (product, variant) pair doesn't exist, or the negative
-        # delta would drop stock below zero.
+    p = ProductRepository.by_id(product_id)
+    if not p or not any(v["id"] == variant_id for v in p["variants"]):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+    updated = InventoryRepository.adjust_on_hand(variant_id, payload.delta)
+    if updated is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Adjustment refused: variant not found or would go below zero.",
+            "Adjustment refused: would push on-hand below reserved quantity.",
         )
     record(
-        AuditAction.VARIANT_STOCK_ADJUST,
-        ResourceType.PRODUCT,
-        resource_id=product_id,
+        AuditAction.INVENTORY_ADJUST,
+        ResourceType.INVENTORY,
+        resource_id=updated["_id"],
         actor=current["user"],
         after={
             "variant_id": variant_id,
             "delta": payload.delta,
             "reason": payload.reason,
+            "quantity_on_hand": updated["quantity_on_hand"],
         },
         request=request,
     )
-    return after
+    return _with_inventory(ProductRepository.by_id(product_id))
 
 
 @router.post("/bulk-upload", response_model=BulkUploadResponse)

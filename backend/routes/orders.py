@@ -8,7 +8,12 @@ from repository.order_repo import OrderRepository
 from repository.store_repo import StoreRepository
 from schemas.order import Order, OrderCancel, OrderCreate, OrderListResponse
 from services.audit_service import record
-from services.order_service import decrement_inventory_for, price_order_lines
+from services.order_service import (
+    commit_inventory_for,
+    price_order_lines,
+    release_inventory_for,
+    reserve_inventory_for,
+)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -20,7 +25,7 @@ def _is_office(user):
 def _visible(user, order):
     if _is_office(user):
         return True
-    return order["owner_id"] == user["_id"]
+    return order.get("sales_rep_id") == user["_id"]
 
 
 @router.get("", response_model=OrderListResponse)
@@ -32,10 +37,10 @@ async def list_orders(
     current=Depends(require_any_user),
 ):
     user = current["user"]
-    owner_id = None if _is_office(user) else user["_id"]
+    sales_rep_id = None if _is_office(user) else user["_id"]
     skip = (page - 1) * page_size
     items, total = OrderRepository.list(
-        owner_id=owner_id,
+        sales_rep_id=sales_rep_id,
         store_id=store_id,
         status=status_filter,
         skip=skip,
@@ -60,10 +65,10 @@ async def place_order(
 ):
     user = current["user"]
     store = StoreRepository.by_id(payload.store_id)
-    if not store or store["owner_id"] != user["_id"]:
+    if not store or store.get("sales_rep_id") != user["_id"]:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            "Store not found or does not belong to you.",
+            "Store not found or is not assigned to you.",
         )
     if store["status"] != StoreStatus.APPROVED.value:
         raise HTTPException(
@@ -84,9 +89,15 @@ async def place_order(
             f"used {store['credit_used']:.2f}).",
         )
 
-    # Hold the credit at placement. It's released on cancellation.
+    # Reserve inventory FIRST — if any line can't be reserved, no state has
+    # to be rolled back. Then hold credit. Then insert the order.
+    reserve_err = reserve_inventory_for(lines)
+    if reserve_err:
+        raise HTTPException(status.HTTP_409_CONFLICT, reserve_err)
+
     hold = StoreRepository.adjust_credit_used(store["_id"], order_total)
     if hold is None:
+        release_inventory_for(lines)
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Credit hold failed (concurrent order). Please retry.",
@@ -95,13 +106,14 @@ async def place_order(
     try:
         order = OrderRepository.insert(
             store=store,
-            owner=user,
+            sales_rep=user,
             lines=lines,
             total=order_total,
             notes=payload.notes,
         )
     except Exception:
         StoreRepository.adjust_credit_used(store["_id"], -order_total)
+        release_inventory_for(lines)
         raise
 
     record(
@@ -128,18 +140,16 @@ async def cancel_order(
 
     user = current["user"]
     if order["status"] != OrderStatus.PLACED.value:
-        # Once office has accepted, cancellation is not allowed via this
-        # endpoint. That matches the spec — cancel is only "just before
-        # accepting". Office can add a separate return/refund flow later.
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Only orders in 'placed' status can be cancelled.",
         )
-    # Sales rep can cancel only their own; office can cancel any placed order.
-    if not _is_office(user) and order["owner_id"] != user["_id"]:
+    if not _is_office(user) and order.get("sales_rep_id") != user["_id"]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
 
     after = OrderRepository.cancel(order_id, payload.reason, user)
+    # Release inventory reservations and credit hold.
+    release_inventory_for(order["lines"])
     StoreRepository.adjust_credit_used(order["store_id"], -order["total"])
     record(
         AuditAction.ORDER_CANCEL,
@@ -169,8 +179,9 @@ def _transition_route(target_status, audit_action):
                 f"Cannot go from '{order['status']}' to '{target_status}'.",
             )
 
+        # Accept turns each reservation into a real consumption.
         if target_status == OrderStatus.ACCEPTED.value:
-            err = decrement_inventory_for(order["lines"])
+            err = commit_inventory_for(order["lines"])
             if err:
                 raise HTTPException(status.HTTP_409_CONFLICT, err)
 

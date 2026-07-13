@@ -26,6 +26,11 @@ from schemas.order import (
     OrderListResponse,
     OrderStatusEvent,
 )
+from schemas.inventory import (
+    Inventory,
+    InventoryListResponse,
+    InventoryUpdate,
+)
 from schemas.product import (
     BulkUploadResponse,
     OptionSet,
@@ -80,6 +85,9 @@ __all__ = [
     "OrderLineCreate",
     "OrderListResponse",
     "OrderStatusEvent",
+    "Inventory",
+    "InventoryListResponse",
+    "InventoryUpdate",
     "BulkUploadResponse",
     "OptionSet",
     "Product",
@@ -96,6 +104,7 @@ __all__ = [
     "StoreApprove",
     "StoreCreate",
     "StoreListResponse",
+    "StoreAssign",
     "StoreReject",
     "StoreUpdate",
     "StoredUser",

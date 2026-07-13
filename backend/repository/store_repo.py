@@ -15,7 +15,7 @@ class StoreRepository:
     @staticmethod
     def ensure_indexes():
         coll = StoreRepository._coll()
-        coll.create_index([("owner_id", ASCENDING)])
+        coll.create_index([("sales_rep_id", ASCENDING)])
         coll.create_index([("status", ASCENDING)])
         coll.create_index([("name", ASCENDING)])
 
@@ -27,10 +27,10 @@ class StoreRepository:
         return to_public_doc(StoreRepository._coll().find_one({"_id": oid}))
 
     @staticmethod
-    def list(owner_id=None, status=None, search=None, skip=0, limit=50):
+    def list(sales_rep_id=None, status=None, search=None, skip=0, limit=50):
         q = {}
-        if owner_id:
-            q["owner_id"] = owner_id
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
         if status:
             q["status"] = status
         if search:
@@ -51,7 +51,7 @@ class StoreRepository:
         return items, total
 
     @staticmethod
-    def insert(*, owner_id, owner_name, name, location, contact, geo, email, gst_number, notes):
+    def insert(*, sales_rep_id, sales_rep_name, name, location, contact, geo, email, gst_number, notes):
         now = now_utc()
         doc = {
             "name": name,
@@ -61,8 +61,8 @@ class StoreRepository:
             "email": email,
             "gst_number": gst_number,
             "notes": notes,
-            "owner_id": owner_id,
-            "owner_name": owner_name,
+            "sales_rep_id": sales_rep_id,
+            "sales_rep_name": sales_rep_name,
             "status": StoreStatus.PENDING.value,
             "credit_limit": 0.0,
             "credit_used": 0.0,
@@ -73,6 +73,23 @@ class StoreRepository:
         res = StoreRepository._coll().insert_one(doc)
         doc["_id"] = str(res.inserted_id)
         return to_public_doc(doc)
+
+    @staticmethod
+    def assign(store_id, sales_rep_id, sales_rep_name):
+        oid = oid_or_none(store_id)
+        if oid is None:
+            return None
+        StoreRepository._coll().update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "sales_rep_id": sales_rep_id,
+                    "sales_rep_name": sales_rep_name,
+                    "updated_at": now_utc(),
+                }
+            },
+        )
+        return StoreRepository.by_id(store_id)
 
     @staticmethod
     def update(store_id, patch):

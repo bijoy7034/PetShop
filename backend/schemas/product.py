@@ -10,7 +10,8 @@ class VariantCreate(BaseModel):
     sku: str | None = Field(default=None, max_length=60)
     price: float = Field(ge=0)
     discount_price: float | None = Field(default=None, ge=0)
-    stock: int = Field(default=0, ge=0)
+    initial_stock: int = Field(default=0, ge=0)
+    reorder_level: int = Field(default=0, ge=0)
 
 
 class VariantUpdate(BaseModel):
@@ -30,7 +31,11 @@ class Variant(BaseModel):
     sku: str | None = None
     price: float
     discount_price: float | None = None
-    stock: int
+    # Live counts pulled from the inventory collection on read.
+    quantity_on_hand: int = 0
+    reserved_quantity: int = 0
+    available: int = 0
+    reorder_level: int = 0
 
 
 class StockAdjust(BaseModel):

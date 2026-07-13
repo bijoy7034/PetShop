@@ -7,7 +7,16 @@ from helpers.datetime import now_utc
 from helpers.mongo import oid_or_none, to_public_doc
 
 
+def variant_label(v):
+    parts = [p for p in (v.get("size"), v.get("weight"), v.get("color")) if p]
+    if v.get("sku"):
+        parts.append(f"SKU {v['sku']}")
+    return " / ".join(parts) if parts else None
+
+
 def _serialize_variants(variants):
+    """Persist only variant-identity fields. Stock and reserved counts live
+    in the inventory collection — they're intentionally absent here."""
     return [
         {
             "_id": ObjectId(),
@@ -19,7 +28,28 @@ def _serialize_variants(variants):
             "discount_price": (
                 float(v["discount_price"]) if v.get("discount_price") is not None else None
             ),
-            "stock": int(v.get("stock") or 0),
+        }
+        for v in variants
+    ]
+
+
+def _hydrate_variants(variants):
+    """Turn stored variant docs into API-shaped dicts. Live inventory is
+    merged in by the route layer via _with_inventory to avoid an import
+    cycle (inventory_repo -> product_repo)."""
+    return [
+        {
+            "id": str(v["_id"]),
+            "size": v.get("size"),
+            "weight": v.get("weight"),
+            "color": v.get("color"),
+            "sku": v.get("sku"),
+            "price": v["price"],
+            "discount_price": v.get("discount_price"),
+            "quantity_on_hand": 0,
+            "reserved_quantity": 0,
+            "available": 0,
+            "reorder_level": 0,
         }
         for v in variants
     ]
@@ -29,20 +59,7 @@ def _to_public(doc):
     if not doc:
         return None
     out = to_public_doc(doc)
-    variants = out.get("variants") or []
-    out["variants"] = [
-        {
-            "id": str(v["_id"]),
-            "size": v.get("size"),
-            "weight": v.get("weight"),
-            "color": v.get("color"),
-            "sku": v.get("sku"),
-            "price": v["price"],
-            "discount_price": v.get("discount_price"),
-            "stock": v.get("stock", 0),
-        }
-        for v in variants
-    ]
+    out["variants"] = _hydrate_variants(out.get("variants") or [])
     return out
 
 
@@ -68,9 +85,7 @@ class ProductRepository:
 
     @staticmethod
     def by_name(name):
-        return _to_public(
-            ProductRepository._coll().find_one({"name": name})
-        )
+        return _to_public(ProductRepository._coll().find_one({"name": name}))
 
     @staticmethod
     def list(category_id=None, subcategory_id=None, search=None, skip=0, limit=50):
@@ -109,6 +124,7 @@ class ProductRepository:
         variants,
     ):
         now = now_utc()
+        serialized = _serialize_variants(variants)
         doc = {
             "name": name,
             "subcategory_id": subcategory_id,
@@ -120,19 +136,31 @@ class ProductRepository:
             "discount_price": (
                 float(discount_price) if discount_price is not None else None
             ),
-            "variants": _serialize_variants(variants),
+            "variants": serialized,
             "created_at": now,
             "updated_at": now,
         }
         res = ProductRepository._coll().insert_one(doc)
         doc["_id"] = str(res.inserted_id)
-        return _to_public(doc)
+        # Return the persisted (identity-only) variants plus the input dicts
+        # so the route layer can seed inventory with initial_stock/reorder_level.
+        seed = []
+        for stored, incoming in zip(serialized, variants):
+            seed.append(
+                {
+                    "variant_id": str(stored["_id"]),
+                    "variant_label": variant_label(stored),
+                    "initial_stock": int(incoming.get("initial_stock") or 0),
+                    "reorder_level": int(incoming.get("reorder_level") or 0),
+                }
+            )
+        public = _to_public(doc)
+        public["_inventory_seed"] = seed
+        return public
 
     @staticmethod
     def refresh_taxonomy_names(*, subcategory_id=None, category_id=None,
                                 subcategory_name=None, category_name=None):
-        """Keep denormalised names on products in sync when a subcategory or
-        category is renamed. Pass whichever ids to target."""
         patch = {"updated_at": now_utc()}
         if subcategory_name is not None:
             patch["subcategory_name"] = subcategory_name
@@ -173,7 +201,7 @@ class ProductRepository:
     def add_variant(product_id, variant):
         oid = oid_or_none(product_id)
         if oid is None:
-            return None
+            return None, None
         serialized = _serialize_variants([variant])[0]
         ProductRepository._coll().update_one(
             {"_id": oid},
@@ -182,7 +210,13 @@ class ProductRepository:
                 "$set": {"updated_at": now_utc()},
             },
         )
-        return ProductRepository.by_id(product_id)
+        seed = {
+            "variant_id": str(serialized["_id"]),
+            "variant_label": variant_label(serialized),
+            "initial_stock": int(variant.get("initial_stock") or 0),
+            "reorder_level": int(variant.get("reorder_level") or 0),
+        }
+        return ProductRepository.by_id(product_id), seed
 
     @staticmethod
     def update_variant(product_id, variant_id, patch):
@@ -217,32 +251,9 @@ class ProductRepository:
         return ProductRepository.by_id(product_id)
 
     @staticmethod
-    def adjust_stock(product_id, variant_id, delta):
-        """Atomically adjust a variant's stock. Refuses to go below zero.
-        Returns the fresh product on success, None if not found or would
-        underflow."""
-        oid = oid_or_none(product_id)
-        void = oid_or_none(variant_id)
-        if oid is None or void is None:
-            return None
-        q = {"_id": oid, "variants._id": void}
-        if delta < 0:
-            q["variants.stock"] = {"$gte": -delta}
-        res = ProductRepository._coll().update_one(
-            q,
-            {
-                "$inc": {"variants.$.stock": delta},
-                "$set": {"updated_at": now_utc()},
-            },
-        )
-        if res.matched_count == 0:
-            return None
-        return ProductRepository.by_id(product_id)
-
-    @staticmethod
     def get_variant(product_id, variant_id):
-        """Return {product_id, variant_dict} or None. Used by order code to
-        price and stock-check lines."""
+        """Identity + price for a variant. Stock lives in inventory — the
+        caller joins the two."""
         oid = oid_or_none(product_id)
         void = oid_or_none(variant_id)
         if oid is None or void is None:
@@ -258,7 +269,7 @@ class ProductRepository:
             "product_id": str(doc["_id"]),
             "product_name": doc["name"],
             "variant_id": str(v["_id"]),
+            "variant_label": variant_label(v),
             "price": v["price"],
             "discount_price": v.get("discount_price"),
-            "stock": v.get("stock", 0),
         }

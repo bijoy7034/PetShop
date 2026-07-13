@@ -170,6 +170,7 @@
     <li><a href="#categories">Categories</a></li>
     <li><a href="#subcategories">Subcategories</a></li>
     <li><a href="#products">Products</a></li>
+    <li><a href="#inventory">Inventory</a></li>
     <li><a href="#stores">Stores</a></li>
     <li><a href="#attendance">Attendance</a></li>
     <li><a href="#orders">Orders</a></li>
@@ -308,6 +309,14 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
 <p>Headers accepted (case-insensitive): <code>name</code>, <code>category</code>, <code>subcategory</code>, <code>description</code>, <code>base_price</code>, <code>discount_price</code>, <code>variant_size</code>, <code>variant_weight</code>, <code>variant_color</code>, <code>variant_sku</code>, <code>variant_price</code>, <code>variant_discount_price</code>, <code>variant_stock</code>.</p>
 <p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>category</code> AND <code>subcategory</code> are <strong>required</strong> — the sheet resolves them by name (case-insensitive on subcategory) and rejects rows referencing unknown ones. Categories and subcategories must exist beforehand (create them via the API before uploading).</p>
 
+<h3>3c) Set opening stock / reorder level (office)</h3>
+<p>Variants are auto-created with <code>quantity_on_hand = 0</code>. Load opening stock with the adjust endpoint (which now writes to the inventory collection), and set reorder levels for low-stock alerts:</p>
+<pre><code>POST /api/products/{product_id}/variants/{variant_id}/adjust-stock
+{ "delta": 200, "reason": "Initial receipt from supplier" }
+
+PATCH /api/inventory/{inv_id}
+{ "reorder_level": 25 }</code></pre>
+
 <h3>4) Sales rep adds a store</h3>
 <pre><code>// Login as sales_rep first, then:
 POST /api/stores
@@ -329,7 +338,11 @@ POST /api/stores
 <h3>5) Office approves the store</h3>
 <pre><code>// Login as office_staff, then:
 POST /api/stores/{store_id}/approve
-{ "credit_limit": 100000 }</code></pre>
+{ "credit_limit": 100000 }
+
+// (Optional) reassign a store to a different sales rep:
+POST /api/stores/{store_id}/assign
+{ "sales_rep_id": "{other_rep_id}" }</code></pre>
 
 <h3>6) Sales rep visits the store and marks attendance</h3>
 <pre><code>POST /api/attendance
@@ -587,14 +600,12 @@ POST /api/orders/{order_id}/deliver</code></pre>
   "category_id":    "...", "category_name":    "Toys",
   "base_price": 550,
   "variants": [
-    { "id": "...", "size": "Small",  "color": "Red",  "price": 550, "stock": 0, "sku": null },
-    { "id": "...", "size": "Small",  "color": "Blue", "price": 550, "stock": 0, "sku": null },
-    { "id": "...", "size": "Medium", "color": "Red",  "price": 550, "stock": 0, "sku": null },
-    { "id": "...", "size": "Medium", "color": "Blue", "price": 550, "stock": 0, "sku": null },
-    { "id": "...", "size": "Large",  "color": "Red",  "price": 550, "stock": 0, "sku": null },
-    { "id": "...", "size": "Large",  "color": "Blue", "price": 550, "stock": 0, "sku": null }
+    { "id": "...", "size": "Small", "color": "Red",  "price": 550, "sku": null,
+      "quantity_on_hand": 0, "reserved_quantity": 0, "available": 0, "reorder_level": 0 },
+    ...
   ]
 }</code></pre>
+  <p class="muted">Live stock counts are joined in from the <code>inventory</code> collection on every read (no join in the client). To seed opening stock and reorder threshold, use <code>POST /adjust-stock</code> and <code>PATCH /api/inventory/{inv_id}</code>.</p>
 </div>
 
 <div class="endpoint">
@@ -623,9 +634,56 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products/{product_id}/variants/{variant_id}/adjust-stock <span class="role">office</span></h4>
-  <p>Atomic bump. Refuses to go below zero.</p>
+  <p>Legacy convenience URL. Delegates to the inventory row for this variant. Atomic. Refuses if the resulting on-hand would drop below the current reserved quantity (that would strand pending orders).</p>
   <p class="label">Body</p>
   <pre><code>{ "delta": -3, "reason": "Damaged during unloading" }</code></pre>
+</div>
+
+<!-- ========== INVENTORY ========== -->
+<h2 id="inventory">Inventory</h2>
+<p class="muted">Stock lives in its own collection, one document per variant. Read the section below on the reserve / commit / release lifecycle before wiring the frontend.</p>
+
+<div class="callout">
+  <p><strong>Reserve on place, commit on accept, release on cancel.</strong></p>
+  <ul>
+    <li><strong>Sales rep places an order</strong> &rarr; each line's <code>reserved_quantity</code> increments. If any line has <code>available = on_hand - reserved &lt; qty</code>, the whole order is refused (<code>409</code>).</li>
+    <li><strong>Office accepts</strong> &rarr; each line's <code>quantity_on_hand</code> AND <code>reserved_quantity</code> both decrement (the reservation "commits" into a real consumption).</li>
+    <li><strong>Sales rep or office cancels (only while <code>placed</code>)</strong> &rarr; each line's <code>reserved_quantity</code> decrements, releasing the hold. <code>on_hand</code> is untouched.</li>
+    <li><strong>Available for the frontend</strong> = <code>on_hand - reserved</code>. Server includes this on every variant response.</li>
+  </ul>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/inventory <span class="role">any user</span></h4>
+  <p>List inventory rows. Query: <code>product_id</code>, <code>low_stock=true</code> (returns only rows where <code>reorder_level &gt; 0</code> AND <code>available &lt; reorder_level</code>), <code>page</code>, <code>page_size</code>.</p>
+  <p class="label">Response 200 (excerpt)</p>
+  <pre><code>{
+  "items": [
+    { "_id": "6a...", "product_id": "...", "product_name": "Kong Classic Rubber Toy",
+      "variant_id": "...", "variant_label": "Medium / Red / SKU KNG-CL-M",
+      "quantity_on_hand": 45, "reserved_quantity": 8, "available": 37,
+      "reorder_level": 10, "created_at": "...", "updated_at": "..." }
+  ],
+  "total": 6, "page": 1, "page_size": 50
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/inventory/{inv_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/inventory/{inv_id} <span class="role">office</span></h4>
+  <p>Set the reorder threshold. Only field editable via PATCH.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "reorder_level": 25 }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/inventory/{inv_id}/adjust <span class="role">office</span></h4>
+  <p>Adjust <code>quantity_on_hand</code>. Same effect as the legacy <code>/products/{pid}/variants/{vid}/adjust-stock</code> URL. Refuses if the new on-hand would drop below the current <code>reserved_quantity</code>.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "delta": 100, "reason": "Supplier shipment received" }</code></pre>
 </div>
 
 <div class="endpoint">
@@ -647,11 +705,11 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method GET">GET</span> /api/stores <span class="role">any user</span></h4>
-  <p>Sales rep sees only their own stores. Office/admin see all. Query: <code>status</code>, <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
+  <p>Sales rep sees only stores where <code>sales_rep_id == self._id</code>. Office/admin see all. Query: <code>status</code>, <code>search</code>, <code>page</code>, <code>page_size</code>.</p>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method GET">GET</span> /api/stores/{store_id} <span class="role">owner sales_rep or office</span></h4>
+  <h4><span class="method GET">GET</span> /api/stores/{store_id} <span class="role">assigned sales_rep or office</span></h4>
 </div>
 
 <div class="endpoint">
@@ -666,7 +724,7 @@ POST /api/orders/{order_id}/deliver</code></pre>
   "gst_number": "29ABCDE1234F1Z5",
   "notes": "Prefers deliveries before 11am"
 }</code></pre>
-  <p class="muted">Created in <code>status: pending</code> with <code>credit_limit: 0</code>.</p>
+  <p class="muted">Created in <code>status: pending</code> with <code>credit_limit: 0</code>. Server sets <code>sales_rep_id</code> and <code>sales_rep_name</code> from the caller — sales reps cannot spoof these.</p>
 </div>
 
 <div class="endpoint">
@@ -689,6 +747,13 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <h4><span class="method POST">POST</span> /api/stores/{store_id}/reject <span class="role">office</span></h4>
   <p class="label">Body</p>
   <pre><code>{ "reason": "Duplicate of existing store record" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores/{store_id}/assign <span class="role">office</span></h4>
+  <p>Reassign a store to a different sales rep. Target must be an active user with role <code>sales_rep</code>. Orders and attendance already on the store keep their original <code>sales_rep_id</code> (historical). Future orders and attendance are scoped to the new assignee.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "sales_rep_id": "{new_rep_id}" }</code></pre>
 </div>
 
 <!-- ========== ATTENDANCE ========== -->
@@ -722,17 +787,17 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method GET">GET</span> /api/orders <span class="role">any user</span></h4>
-  <p>Sales rep sees only their own orders. Office/admin see all. Query: <code>store_id</code>, <code>status</code>, <code>page</code>, <code>page_size</code>.</p>
+  <p>Sales rep sees only orders where <code>sales_rep_id == self._id</code>. Office/admin see all. Query: <code>store_id</code>, <code>status</code>, <code>page</code>, <code>page_size</code>.</p>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method GET">GET</span> /api/orders/{order_id} <span class="role">owner sales_rep or office</span></h4>
+  <h4><span class="method GET">GET</span> /api/orders/{order_id} <span class="role">placing sales_rep or office</span></h4>
   <p>Returns the full order incl. <code>history[]</code> — every status transition with actor + timestamp. This is what the office order detail UI should render as a step tracker.</p>
 </div>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders <span class="role">sales_rep</span></h4>
-  <p>Place an order. Server prices every line, sums the total, and enforces <code>credit_used + total ≤ credit_limit</code>. Credit is held until cancel or write-off.</p>
+  <p>Place an order. Two-phase safety: server reserves inventory on every line, then holds credit, then persists the order. If reservation fails for any line, everything already reserved is released; if credit fails, reservations are released. Enforces <code>credit_used + total ≤ credit_limit</code>.</p>
   <p class="label">Body</p>
   <pre><code>{
   "store_id": "{store_id}",
@@ -766,15 +831,15 @@ POST /api/orders/{order_id}/deliver</code></pre>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method POST">POST</span> /api/orders/{order_id}/cancel <span class="role">owner sales_rep or office</span></h4>
-  <p>Only allowed while status is <code>placed</code>. Releases the credit hold.</p>
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/cancel <span class="role">placing sales_rep or office</span></h4>
+  <p>Only allowed while status is <code>placed</code>. Releases both the inventory reservations and the credit hold.</p>
   <p class="label">Body</p>
   <pre><code>{ "reason": "Store changed their mind" }</code></pre>
 </div>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders/{order_id}/accept <span class="role">office</span></h4>
-  <p>Transitions <code>placed → accepted</code> and <strong>atomically decrements variant stock</strong> for every line. If any line underflows mid-way (concurrent order), rolls back and returns 409.</p>
+  <p>Transitions <code>placed → accepted</code> and <strong>commits</strong> every line's reservation into a real consumption (decrements both <code>quantity_on_hand</code> and <code>reserved_quantity</code>). If any line's commit fails mid-way (shouldn't happen because we reserved at placement, but guarded anyway), the already-committed lines are rolled back to the reserved state and this returns 409.</p>
 </div>
 
 <div class="endpoint">

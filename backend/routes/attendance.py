@@ -25,10 +25,10 @@ async def mark_attendance(
 ):
     user = current["user"]
     store = StoreRepository.by_id(payload.store_id)
-    if not store or store["owner_id"] != user["_id"]:
+    if not store or store.get("sales_rep_id") != user["_id"]:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            "Store not found or does not belong to you.",
+            "Store not found or is not assigned to you.",
         )
     if store["status"] != StoreStatus.APPROVED.value:
         raise HTTPException(

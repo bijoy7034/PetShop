@@ -4,9 +4,11 @@ from enums.audit import AuditAction, ResourceType
 from enums.store import StoreStatus
 from middleware.auth import require_any_user, require_office
 from repository.store_repo import StoreRepository
+from repository.user_repo import UserRepository
 from schemas.store import (
     Store,
     StoreApprove,
+    StoreAssign,
     StoreCreate,
     StoreListResponse,
     StoreReject,
@@ -22,10 +24,10 @@ def _is_office(user):
 
 
 def _visible(user, store):
-    """A sales rep can only see stores they own. Office / admin see all."""
+    """Sales rep sees only their assigned stores. Office / admin see all."""
     if _is_office(user):
         return True
-    return store["owner_id"] == user["_id"]
+    return store.get("sales_rep_id") == user["_id"]
 
 
 @router.get("", response_model=StoreListResponse)
@@ -37,9 +39,9 @@ async def list_stores(
     current=Depends(require_any_user),
 ):
     skip = (page - 1) * page_size
-    owner_id = None if _is_office(current["user"]) else current["user"]["_id"]
+    sales_rep_id = None if _is_office(current["user"]) else current["user"]["_id"]
     items, total = StoreRepository.list(
-        owner_id=owner_id,
+        sales_rep_id=sales_rep_id,
         status=status_filter,
         search=search,
         skip=skip,
@@ -69,8 +71,8 @@ async def create_store(
             "Only sales representatives can add stores.",
         )
     store = StoreRepository.insert(
-        owner_id=user["_id"],
-        owner_name=user.get("name"),
+        sales_rep_id=user["_id"],
+        sales_rep_name=user.get("name"),
         name=payload.name,
         location=payload.location,
         contact=payload.contact.model_dump(),
@@ -101,10 +103,7 @@ async def update_store(
     if not store:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
     user = current["user"]
-    # Sales reps can only edit their own store details. Office/admin can edit
-    # any store's profile (but approval fields go through the dedicated
-    # approve/reject endpoints).
-    if not _is_office(user) and store["owner_id"] != user["_id"]:
+    if not _is_office(user) and store.get("sales_rep_id") != user["_id"]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
 
     patch = payload.model_dump(exclude_unset=True)
@@ -141,7 +140,7 @@ async def delete_store(
         ResourceType.STORE,
         resource_id=store_id,
         actor=current["user"],
-        before={"name": store["name"], "owner_id": store["owner_id"]},
+        before={"name": store["name"], "sales_rep_id": store.get("sales_rep_id")},
         request=request,
     )
     return None
@@ -157,9 +156,6 @@ async def approve_store(
     store = StoreRepository.by_id(store_id)
     if not store:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
-    if store["status"] == StoreStatus.APPROVED.value:
-        # Re-approval == credit limit change. Still legal.
-        pass
     after = StoreRepository.approve(store_id, payload.credit_limit)
     record(
         AuditAction.STORE_APPROVE,
@@ -194,6 +190,51 @@ async def reject_store(
         actor=current["user"],
         before={"status": store["status"]},
         after={"status": after["status"], "reject_reason": payload.reason},
+        request=request,
+    )
+    return after
+
+
+@router.post("/{store_id}/assign", response_model=Store)
+async def assign_store(
+    store_id: str,
+    payload: StoreAssign,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Reassign a store to a different sales rep. Admin/office only. The
+    target must be an active sales_rep."""
+    store = StoreRepository.by_id(store_id)
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    target = UserRepository.by_id(payload.sales_rep_id)
+    if not target:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Target user not found")
+    if target.get("role") != "sales_rep":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Target user is not a sales representative.",
+        )
+    if target.get("status") != "active":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Target sales rep account is not active.",
+        )
+
+    after = StoreRepository.assign(store_id, target["_id"], target.get("name"))
+    record(
+        AuditAction.STORE_ASSIGN,
+        ResourceType.STORE,
+        resource_id=store_id,
+        actor=current["user"],
+        before={
+            "sales_rep_id": store.get("sales_rep_id"),
+            "sales_rep_name": store.get("sales_rep_name"),
+        },
+        after={
+            "sales_rep_id": after["sales_rep_id"],
+            "sales_rep_name": after["sales_rep_name"],
+        },
         request=request,
     )
     return after

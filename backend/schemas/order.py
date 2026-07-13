@@ -41,8 +41,8 @@ class Order(BaseModel):
     id: str = Field(alias="_id")
     store_id: str
     store_name: str | None = None
-    owner_id: str
-    owner_name: str | None = None
+    sales_rep_id: str
+    sales_rep_name: str | None = None
     status: OrderStatus
     lines: list[OrderLine]
     total: float

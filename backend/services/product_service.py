@@ -311,9 +311,13 @@ def import_products(file_bytes):
                     "sku": r["variant_sku"],
                     "price": price,
                     "discount_price": r["variant_discount_price"],
-                    "stock": r["variant_stock"] or 0,
+                    "initial_stock": r["variant_stock"] or 0,
+                    "reorder_level": 0,
                 }
             )
+
+        # Lazy import: inventory_repo depends on product_repo indirectly.
+        from repository.inventory_repo import InventoryRepository
 
         existing = ProductRepository.by_name(key)
         if existing:
@@ -333,14 +337,23 @@ def import_products(file_bytes):
                 },
             )
             for v in variants_payload:
-                ProductRepository.add_variant(existing["_id"], v)
+                _, seed = ProductRepository.add_variant(existing["_id"], v)
+                if seed:
+                    InventoryRepository.create(
+                        product_id=existing["_id"],
+                        variant_id=seed["variant_id"],
+                        variant_label=seed["variant_label"],
+                        product_name=key,
+                        quantity_on_hand=seed["initial_stock"],
+                        reorder_level=seed["reorder_level"],
+                    )
             updated += 1
             for r in bundle["variants"]:
                 reports.append(
                     {"row": r["_row"], "action": "updated", "product_name": key}
                 )
         else:
-            ProductRepository.insert(
+            p = ProductRepository.insert(
                 name=key,
                 subcategory_id=sub["_id"],
                 subcategory_name=sub["name"],
@@ -351,6 +364,15 @@ def import_products(file_bytes):
                 discount_price=head["discount_price"],
                 variants=variants_payload,
             )
+            for seed in p.get("_inventory_seed") or []:
+                InventoryRepository.create(
+                    product_id=p["_id"],
+                    variant_id=seed["variant_id"],
+                    variant_label=seed.get("variant_label"),
+                    product_name=key,
+                    quantity_on_hand=seed["initial_stock"],
+                    reorder_level=seed["reorder_level"],
+                )
             created += 1
             for r in bundle["variants"]:
                 reports.append(

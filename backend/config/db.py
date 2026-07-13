@@ -41,6 +41,7 @@ class MongoManager:
         from repository.attendance_repo import AttendanceRepository
         from repository.audit_repo import AuditRepository
         from repository.category_repo import CategoryRepository
+        from repository.inventory_repo import InventoryRepository
         from repository.order_repo import OrderRepository
         from repository.product_repo import ProductRepository
         from repository.session_repo import SessionRepository
@@ -54,12 +55,13 @@ class MongoManager:
         CategoryRepository.ensure_indexes()
         SubcategoryRepository.ensure_indexes()
         ProductRepository.ensure_indexes()
+        InventoryRepository.ensure_indexes()
         StoreRepository.ensure_indexes()
         AttendanceRepository.ensure_indexes()
         OrderRepository.ensure_indexes()
         logger.info(
             "Indexes ensured: users, sessions, audit_log, categories, "
-            "subcategories, products, stores, attendance, orders"
+            "subcategories, products, inventory, stores, attendance, orders"
         )
 
     def ping(self):

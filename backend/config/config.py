@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     CATEGORIES_COLL: str = "categories"
     SUBCATEGORIES_COLL: str = "subcategories"
     PRODUCTS_COLL: str = "products"
+    INVENTORY_COLL: str = "inventory"
     STORES_COLL: str = "stores"
     ATTENDANCE_COLL: str = "attendance"
     ORDERS_COLL: str = "orders"

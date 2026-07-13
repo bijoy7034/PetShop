@@ -16,7 +16,7 @@ class OrderRepository:
     def ensure_indexes():
         coll = OrderRepository._coll()
         coll.create_index([("store_id", ASCENDING), ("created_at", DESCENDING)])
-        coll.create_index([("owner_id", ASCENDING), ("created_at", DESCENDING)])
+        coll.create_index([("sales_rep_id", ASCENDING), ("created_at", DESCENDING)])
         coll.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
 
     @staticmethod
@@ -27,10 +27,10 @@ class OrderRepository:
         return to_public_doc(OrderRepository._coll().find_one({"_id": oid}))
 
     @staticmethod
-    def list(owner_id=None, store_id=None, status=None, skip=0, limit=50):
+    def list(sales_rep_id=None, store_id=None, status=None, skip=0, limit=50):
         q = {}
-        if owner_id:
-            q["owner_id"] = owner_id
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
         if store_id:
             q["store_id"] = store_id
         if status:
@@ -47,13 +47,13 @@ class OrderRepository:
         return items, total
 
     @staticmethod
-    def insert(*, store, owner, lines, total, notes):
+    def insert(*, store, sales_rep, lines, total, notes):
         now = now_utc()
         doc = {
             "store_id": store["_id"],
             "store_name": store.get("name"),
-            "owner_id": owner["_id"],
-            "owner_name": owner.get("name"),
+            "sales_rep_id": sales_rep["_id"],
+            "sales_rep_name": sales_rep.get("name"),
             "status": OrderStatus.PLACED.value,
             "lines": lines,
             "total": float(total),
@@ -62,8 +62,8 @@ class OrderRepository:
                 {
                     "status": OrderStatus.PLACED.value,
                     "at": now,
-                    "by_user_id": owner["_id"],
-                    "by_user_name": owner.get("name"),
+                    "by_user_id": sales_rep["_id"],
+                    "by_user_name": sales_rep.get("name"),
                     "note": None,
                 }
             ],
