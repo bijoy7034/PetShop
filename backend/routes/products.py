@@ -25,7 +25,7 @@ from schemas.product import (
     VariantUpdate,
 )
 from services.audit_service import record
-from services.product_service import import_products
+from services.product_service import expand_option_sets, import_products
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -82,6 +82,8 @@ async def create_product(
     current=Depends(require_office),
 ):
     sub, cat = _resolve_subcategory(payload.subcategory_id)
+    option_dump = payload.option_sets.model_dump() if payload.option_sets else None
+    variants = expand_option_sets(option_dump, payload.base_price)
     p = ProductRepository.insert(
         name=payload.name,
         subcategory_id=sub["_id"],
@@ -91,7 +93,7 @@ async def create_product(
         description=payload.description,
         base_price=payload.base_price,
         discount_price=payload.discount_price,
-        variants=[v.model_dump() for v in payload.variants],
+        variants=variants,
     )
     record(
         AuditAction.PRODUCT_CREATE,
@@ -102,6 +104,7 @@ async def create_product(
             "name": p["name"],
             "subcategory_id": p["subcategory_id"],
             "category_id": p["category_id"],
+            "variant_count": len(variants),
         },
         request=request,
     )

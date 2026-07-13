@@ -38,13 +38,22 @@ class StockAdjust(BaseModel):
     reason: str = Field(min_length=1, max_length=200)
 
 
+class OptionSet(BaseModel):
+    """Axes that define a product's variant matrix. Non-empty axes are
+    combined into a Cartesian product server-side to auto-generate variants
+    at product creation time. Empty or omitted axes are ignored."""
+    size: list[str] | None = None
+    weight: list[str] | None = None
+    color: list[str] | None = None
+
+
 class ProductCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     subcategory_id: str
     description: str | None = Field(default=None, max_length=4000)
     base_price: float = Field(ge=0)
     discount_price: float | None = Field(default=None, ge=0)
-    variants: list[VariantCreate] = []
+    option_sets: OptionSet | None = None
 
 
 class ProductUpdate(BaseModel):

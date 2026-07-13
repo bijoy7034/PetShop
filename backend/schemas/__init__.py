@@ -28,6 +28,7 @@ from schemas.order import (
 )
 from schemas.product import (
     BulkUploadResponse,
+    OptionSet,
     Product,
     ProductCreate,
     ProductListResponse,
@@ -80,6 +81,7 @@ __all__ = [
     "OrderListResponse",
     "OrderStatusEvent",
     "BulkUploadResponse",
+    "OptionSet",
     "Product",
     "ProductCreate",
     "ProductListResponse",

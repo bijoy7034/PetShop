@@ -12,12 +12,63 @@ product; the first row supplies the product-level fields. `category` (and
 unknown categories fail the row rather than being auto-created.
 """
 from io import BytesIO
+from itertools import product as _cartesian
 
 from openpyxl import load_workbook
 
 from repository.category_repo import CategoryRepository
 from repository.product_repo import ProductRepository
 from repository.subcategory_repo import SubcategoryRepository
+
+
+_VARIANT_AXES = ("size", "weight", "color")
+
+
+def _dedupe(values):
+    """Preserve order, drop blanks and dupes."""
+    seen = set()
+    out = []
+    for v in values or ():
+        s = str(v).strip() if v is not None else ""
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def expand_option_sets(option_sets, base_price):
+    """Turn an OptionSet dict into a list of variant dicts.
+
+    Cartesian product across every non-empty axis. If no axes are populated,
+    returns a single blank variant (single-SKU product). Every variant
+    starts at base_price / stock=0 / sku=None — office fills real prices
+    and SKUs via the per-variant PATCH endpoint after creation.
+    """
+    axes = []
+    for key in _VARIANT_AXES:
+        values = _dedupe((option_sets or {}).get(key))
+        if values:
+            axes.append((key, values))
+
+    if not axes:
+        return [
+            {
+                "size": None, "weight": None, "color": None, "sku": None,
+                "price": float(base_price), "discount_price": None, "stock": 0,
+            }
+        ]
+
+    out = []
+    for combo in _cartesian(*[values for _, values in axes]):
+        v = {
+            "size": None, "weight": None, "color": None, "sku": None,
+            "price": float(base_price), "discount_price": None, "stock": 0,
+        }
+        for (key, _), value in zip(axes, combo):
+            v[key] = value
+        out.append(v)
+    return out
 
 _HEADER_ALIASES = {
     "name": "name",

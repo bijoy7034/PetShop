@@ -269,44 +269,40 @@ POST /api/subcategories  { "name": "Wet food",   "category_id": "{dog_food_id}" 
 POST /api/subcategories  { "name": "Dry kibble", "category_id": "{cat_food_id}" }
 POST /api/subcategories  { "name": "Chew",       "category_id": "{toys_id}" }</code></pre>
 
-<h3>3) Products with variants (office)</h3>
-<p>Only <code>subcategory_id</code> is sent by the client — the server looks up the parent category and denormalises both IDs and names onto the product.</p>
-<pre><code>POST /api/products
+<h3>3) Products with auto-generated variants (office)</h3>
+<p>You define the product's <strong>option set</strong> (arrays of size / weight / color values). The server expands the Cartesian product of every non-empty axis into individual variants, each seeded at <code>price = base_price</code>, <code>stock = 0</code>, <code>sku = null</code>. Office then fills real prices and SKUs per variant via PATCH, and initial stock via the adjust-stock endpoint.</p>
+<pre><code>// Single-axis: 3 sizes -> 3 variants auto-generated
+POST /api/products
 {
   "name": "Pedigree Adult Chicken &amp; Vegetables",
   "subcategory_id": "{dog_dry_kibble_id}",
   "description": "Adult dog food with real chicken and vegetables.",
   "base_price": 350,
-  "variants": [
-    { "size": "1kg",  "sku": "PED-CHK-1K",  "price": 350,  "stock": 200 },
-    { "size": "3kg",  "sku": "PED-CHK-3K",  "price": 950,  "stock": 120 },
-    { "size": "10kg", "sku": "PED-CHK-10K", "price": 2900, "discount_price": 2750, "stock": 40 }
-  ]
+  "option_sets": { "size": ["1kg", "3kg", "10kg"] }
 }
 
-POST /api/products
-{
-  "name": "Whiskas Ocean Fish",
-  "subcategory_id": "{cat_dry_kibble_id}",
-  "base_price": 280,
-  "variants": [
-    { "size": "450g",  "sku": "WSK-OF-450",  "price": 280,  "stock": 180 },
-    { "size": "1.2kg", "sku": "WSK-OF-1200", "price": 620,  "stock": 90  },
-    { "size": "3kg",   "sku": "WSK-OF-3K",   "price": 1400, "stock": 40  }
-  ]
-}
-
+// Two axes: 3 sizes x 2 colors -> 6 variants
 POST /api/products
 {
   "name": "Kong Classic Rubber Toy",
   "subcategory_id": "{toy_chew_id}",
   "base_price": 550,
-  "variants": [
-    { "size": "Small",  "color": "Red", "sku": "KNG-CL-S", "price": 550,  "stock": 60 },
-    { "size": "Medium", "color": "Red", "sku": "KNG-CL-M", "price": 750,  "stock": 45 },
-    { "size": "Large",  "color": "Red", "sku": "KNG-CL-L", "price": 1050, "stock": 20 }
-  ]
+  "option_sets": { "size": ["Small", "Medium", "Large"], "color": ["Red", "Blue"] }
+}
+
+// No option_sets -> single default variant with all axes null (single-SKU product)
+POST /api/products
+{
+  "name": "Petkin Dog Wipes",
+  "subcategory_id": "{grooming_wipes_id}",
+  "base_price": 220
 }</code></pre>
+<p class="label">Then fill each variant's real price / SKU (loop over the returned <code>variants</code>):</p>
+<pre><code>PATCH /api/products/{product_id}/variants/{variant_id}
+{ "sku": "PED-CHK-1K", "price": 350, "discount_price": null }
+
+POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
+{ "delta": 200, "reason": "Initial receipt from supplier" }</code></pre>
 
 <h3>3b) Or bulk-upload from Excel</h3>
 <p>Headers accepted (case-insensitive): <code>name</code>, <code>category</code>, <code>subcategory</code>, <code>description</code>, <code>base_price</code>, <code>discount_price</code>, <code>variant_size</code>, <code>variant_weight</code>, <code>variant_color</code>, <code>variant_sku</code>, <code>variant_price</code>, <code>variant_discount_price</code>, <code>variant_stock</code>.</p>
@@ -563,25 +559,41 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products <span class="role">office</span></h4>
-  <p>Only <code>subcategory_id</code> is sent — server denormalises <code>category_id</code>, <code>category_name</code>, and <code>subcategory_name</code> onto the product.</p>
+  <p>Client sends <code>subcategory_id</code> (server denormalises the parent category) and an <code>option_sets</code> block. The server expands the Cartesian product across every non-empty axis and stores one <code>variants[]</code> entry per combination, each seeded at <code>price = base_price</code>, <code>stock = 0</code>, <code>sku = null</code>. Real prices, SKUs and stock are filled via the per-variant PATCH + adjust-stock endpoints after creation.</p>
   <p class="label">Body</p>
   <pre><code>{
-  "name": "Pedigree Adult Chicken &amp; Vegetables",
+  "name": "Kong Classic Rubber Toy",
   "subcategory_id": "{sub_id}",
-  "description": "Adult dog food with real chicken and vegetables.",
-  "base_price": 350,
+  "description": "Chew toy",
+  "base_price": 550,
   "discount_price": null,
-  "variants": [
-    { "size": "1kg", "sku": "PED-CHK-1K", "price": 350, "stock": 200 },
-    { "size": "3kg", "sku": "PED-CHK-3K", "price": 950, "stock": 120 }
-  ]
+  "option_sets": {
+    "size":   ["Small", "Medium", "Large"],
+    "color":  ["Red", "Blue"],
+    "weight": null
+  }
 }</code></pre>
+  <p class="label">Rules</p>
+  <ul>
+    <li>Supported axes: <code>size</code>, <code>weight</code>, <code>color</code>. Other axes require a code change.</li>
+    <li>Empty arrays and duplicate values are dropped silently.</li>
+    <li>All axes empty or <code>option_sets</code> omitted &rarr; <strong>1 default variant</strong> with all axes null (single-SKU product).</li>
+    <li>PATCH <code>/api/products/{id}</code> does <strong>not</strong> re-expand — to add a new size after launch use <code>POST /api/products/{id}/variants</code>.</li>
+  </ul>
   <p class="label">Response 201 (excerpt)</p>
   <pre><code>{
-  "_id": "6a...", "name": "Pedigree...",
-  "subcategory_id": "...", "subcategory_name": "Dry kibble",
-  "category_id":    "...", "category_name":    "Dog Food",
-  "base_price": 350, ...
+  "_id": "6a...", "name": "Kong...",
+  "subcategory_id": "...", "subcategory_name": "Chew",
+  "category_id":    "...", "category_name":    "Toys",
+  "base_price": 550,
+  "variants": [
+    { "id": "...", "size": "Small",  "color": "Red",  "price": 550, "stock": 0, "sku": null },
+    { "id": "...", "size": "Small",  "color": "Blue", "price": 550, "stock": 0, "sku": null },
+    { "id": "...", "size": "Medium", "color": "Red",  "price": 550, "stock": 0, "sku": null },
+    { "id": "...", "size": "Medium", "color": "Blue", "price": 550, "stock": 0, "sku": null },
+    { "id": "...", "size": "Large",  "color": "Red",  "price": 550, "stock": 0, "sku": null },
+    { "id": "...", "size": "Large",  "color": "Blue", "price": 550, "stock": 0, "sku": null }
+  ]
 }</code></pre>
 </div>
 
