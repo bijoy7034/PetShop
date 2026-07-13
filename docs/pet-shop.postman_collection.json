@@ -1,0 +1,1543 @@
+{
+  "info": {
+    "name": "Pet Shop API",
+    "_postman_id": "9c1b0f80-5a1e-4d5f-9c0f-petshop000000",
+    "description": "End-to-end tester for the Pet Shop backend.\n\n**Setup**\n1. Import this collection.\n2. Edit the collection variables — set `admin_email` and `admin_password` to match your backend `.env` (the seeded first admin). Optionally change `base_url`, `office_password`, `rep_password`.\n3. Open the Collection Runner and run the **End-to-End Flow** folder in order. It performs a complete happy path: login → seed users → seed taxonomy → seed a product with option_sets → set opening stock → sales rep creates a store → office approves it → attendance → place order → office progresses through accept / pack / dispatch / deliver.\n4. For ad-hoc testing, use the **Explore** folder — each request is independent, but any request that needs an ID reads it from a collection variable so run the corresponding End-to-End step first.\n\n**CSRF is handled automatically.** A collection-level test hook reads the `petshop_csrf` cookie from every response and stores it as `{{csrf_token}}`. Every state-changing request references that variable in the `X-CSRF-Token` header.\n\n**Cookies** are stored in Postman's per-domain cookie jar — the `Login as X` requests overwrite the session cookies each time you switch users.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// After every response, if the server set a fresh CSRF cookie,",
+          "// capture it into a collection variable so subsequent writes can use it.",
+          "if (pm.response && pm.response.cookies) {",
+          "  const csrf = pm.response.cookies.get('petshop_csrf');",
+          "  if (csrf) {",
+          "    pm.collectionVariables.set('csrf_token', csrf);",
+          "  }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000", "type": "string" },
+    { "key": "admin_email", "value": "owner@petshop.local", "type": "string" },
+    { "key": "admin_password", "value": "OwnerPass1234", "type": "string" },
+    { "key": "office_email", "value": "office@petshop.local", "type": "string" },
+    { "key": "office_password", "value": "OfficePass1234", "type": "string" },
+    { "key": "rep_email", "value": "rep@petshop.local", "type": "string" },
+    { "key": "rep_password", "value": "RepPass1234", "type": "string" },
+    { "key": "csrf_token", "value": "", "type": "string" },
+    { "key": "office_user_id", "value": "", "type": "string" },
+    { "key": "rep_user_id", "value": "", "type": "string" },
+    { "key": "category_dog_id", "value": "", "type": "string" },
+    { "key": "category_toys_id", "value": "", "type": "string" },
+    { "key": "subcategory_dry_kibble_id", "value": "", "type": "string" },
+    { "key": "subcategory_chew_id", "value": "", "type": "string" },
+    { "key": "product_id", "value": "", "type": "string" },
+    { "key": "variant_id", "value": "", "type": "string" },
+    { "key": "inventory_id", "value": "", "type": "string" },
+    { "key": "store_id", "value": "", "type": "string" },
+    { "key": "order_id", "value": "", "type": "string" },
+    { "key": "store_lat", "value": "12.9716", "type": "string" },
+    { "key": "store_lng", "value": "77.5946", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "End-to-End Flow",
+      "description": "Runnable happy path. Open the Collection Runner and execute this folder in order.",
+      "item": [
+        {
+          "name": "01. Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Health OK', () => pm.response.to.have.status(200));",
+                  "pm.test('MongoDB up', () => pm.expect(pm.response.json().MongoDB).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "02. Login as admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Role is admin', () => pm.expect(pm.response.json().user.role).to.eql('admin'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "03. Admin creates office user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 201 on first run, 409 if you re-run. Both are fine.",
+                  "if (pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  pm.collectionVariables.set('office_user_id', j.user._id);",
+                  "} else if (pm.response.code === 409) {",
+                  "  console.log('Office user already exists — moving on.');",
+                  "} else {",
+                  "  pm.expect.fail('Expected 201 or 409, got ' + pm.response.code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{office_email}}\",\n  \"name\": \"Priya (Office)\",\n  \"role\": \"office_staff\",\n  \"phone\": \"+91-98450-11111\",\n  \"password\": \"{{office_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users"]
+            }
+          }
+        },
+        {
+          "name": "04. Admin creates sales rep user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('rep_user_id', pm.response.json().user._id);",
+                  "} else if (pm.response.code === 409) {",
+                  "  console.log('Sales rep already exists — moving on.');",
+                  "} else {",
+                  "  pm.expect.fail('Expected 201 or 409, got ' + pm.response.code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{rep_email}}\",\n  \"name\": \"Arjun (Field Rep)\",\n  \"role\": \"sales_rep\",\n  \"phone\": \"+91-98450-22222\",\n  \"password\": \"{{rep_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users"]
+            }
+          }
+        },
+        {
+          "name": "05. Login as office_staff",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Role is office_staff', () => pm.expect(pm.response.json().user.role).to.eql('office_staff'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{office_email}}\",\n  \"password\": \"{{office_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "06. Create category (Dog Food)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('category_dog_id', pm.response.json()._id);",
+                  "} else if (pm.response.code === 409) {",
+                  "  console.log('Category exists — fetching id.');",
+                  "  pm.sendRequest({ url: pm.collectionVariables.get('base_url') + '/api/categories?search=Dog%20Food', method: 'GET' }, (err, res) => {",
+                  "    if (!err) {",
+                  "      const j = res.json();",
+                  "      if (j.items && j.items.length) pm.collectionVariables.set('category_dog_id', j.items[0]._id);",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dog Food\",\n  \"description\": \"Kibble, wet food, treats\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/categories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories"]
+            }
+          }
+        },
+        {
+          "name": "07. Create category (Toys)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('category_toys_id', pm.response.json()._id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Toys\",\n  \"description\": \"Chew, fetch, puzzle\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/categories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories"]
+            }
+          }
+        },
+        {
+          "name": "08. Create subcategory (Dry kibble under Dog Food)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('subcategory_dry_kibble_id', pm.response.json()._id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Dry kibble\",\n  \"category_id\": \"{{category_dog_id}}\",\n  \"description\": \"Bag food\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subcategories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subcategories"]
+            }
+          }
+        },
+        {
+          "name": "09. Create subcategory (Chew under Toys)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('subcategory_chew_id', pm.response.json()._id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Chew\",\n  \"category_id\": \"{{category_toys_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subcategories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subcategories"]
+            }
+          }
+        },
+        {
+          "name": "10. Create product with option_sets (3 sizes)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('product_id', j._id);",
+                  "pm.test('Server generated 3 variants from option_sets', () => pm.expect(j.variants).to.have.lengthOf(3));",
+                  "// Grab the first variant id for the follow-up requests.",
+                  "pm.collectionVariables.set('variant_id', j.variants[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pedigree Adult Chicken & Vegetables\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"description\": \"Adult dog food with real chicken and vegetables.\",\n  \"base_price\": 350,\n  \"option_sets\": {\n    \"size\": [\"1kg\", \"3kg\", \"10kg\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/products",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "11. Fill first variant details (SKU + price)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"PED-CHK-1K\",\n  \"price\": 350\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}"]
+            }
+          }
+        },
+        {
+          "name": "12. Set opening stock via legacy adjust-stock URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const p = pm.response.json();",
+                  "const v = p.variants.find(x => x.id === pm.collectionVariables.get('variant_id'));",
+                  "pm.test('Stock is 200', () => pm.expect(v.quantity_on_hand).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delta\": 200,\n  \"reason\": \"Initial receipt from supplier\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}/adjust-stock",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}", "adjust-stock"]
+            }
+          }
+        },
+        {
+          "name": "13. Find inventory row for this variant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('One row for the variant', () => pm.expect(j.items).to.have.lengthOf.at.least(1));",
+                  "const row = j.items.find(r => r.variant_id === pm.collectionVariables.get('variant_id'));",
+                  "pm.collectionVariables.set('inventory_id', row._id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/inventory?product_id={{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory"],
+              "query": [{ "key": "product_id", "value": "{{product_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "14. Set reorder_level = 25 on the inventory row",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('reorder_level updated', () => pm.expect(pm.response.json().reorder_level).to.eql(25));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"reorder_level\": 25 }" },
+            "url": {
+              "raw": "{{base_url}}/api/inventory/{{inventory_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "{{inventory_id}}"]
+            }
+          }
+        },
+        {
+          "name": "15. Login as sales rep",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Role is sales_rep', () => pm.expect(pm.response.json().user.role).to.eql('sales_rep'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{rep_email}}\",\n  \"password\": \"{{rep_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "16. Sales rep creates a store",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('store_id', j._id);",
+                  "pm.test('Status is pending', () => pm.expect(j.status).to.eql('pending'));",
+                  "pm.test('credit_limit is 0', () => pm.expect(j.credit_limit).to.eql(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Happy Pets Corner\",\n  \"location\": \"MG Road, Bengaluru\",\n  \"contact\": {\n    \"name\": \"Rohit Menon\",\n    \"phone\": \"+91-99450-33333\",\n    \"email\": \"rohit@happypets.example\"\n  },\n  \"geo\": { \"lat\": {{store_lat}}, \"lng\": {{store_lng}} },\n  \"email\": \"orders@happypets.example\",\n  \"gst_number\": \"29ABCDE1234F1Z5\",\n  \"notes\": \"Prefers deliveries before 11am\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/stores",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stores"]
+            }
+          }
+        },
+        {
+          "name": "17. Login as office (to approve)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{office_email}}\",\n  \"password\": \"{{office_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "18. Office approves store with credit_limit=100000",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('Status is approved', () => pm.expect(j.status).to.eql('approved'));",
+                  "pm.test('credit_limit is 100000', () => pm.expect(j.credit_limit).to.eql(100000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"credit_limit\": 100000 }" },
+            "url": {
+              "raw": "{{base_url}}/api/stores/{{store_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stores", "{{store_id}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "19. Login back as sales rep",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{rep_email}}\",\n  \"password\": \"{{rep_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "20. Mark attendance (within geo-fence)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Distance under 100m', () => pm.expect(pm.response.json().distance_meters).to.be.below(100));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"notes\": \"Weekly visit\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/attendance",
+              "host": ["{{base_url}}"],
+              "path": ["api", "attendance"]
+            }
+          }
+        },
+        {
+          "name": "21. Sales rep places an order (5 units)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('order_id', j._id);",
+                  "pm.test('Status is placed', () => pm.expect(j.status).to.eql('placed'));",
+                  "pm.test('Total is 1750', () => pm.expect(j.total).to.eql(1750));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"notes\": \"Monthly restock\",\n  \"lines\": [\n    { \"product_id\": \"{{product_id}}\", \"variant_id\": \"{{variant_id}}\", \"qty\": 5 }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders"]
+            }
+          }
+        },
+        {
+          "name": "22. Office logs in and accepts the order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Chained: login as office first, then accept.",
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('base_url') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('office_email'), password: pm.collectionVariables.get('office_password') }) }",
+                  "}, (err, res) => {",
+                  "  if (!err && res.cookies) {",
+                  "    const csrf = res.cookies.get('petshop_csrf');",
+                  "    if (csrf) pm.collectionVariables.set('csrf_token', csrf);",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Status accepted', () => pm.expect(pm.response.json().status).to.eql('accepted'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{order_id}}/accept",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{order_id}}", "accept"]
+            }
+          }
+        },
+        {
+          "name": "23. Office marks order as packing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status packing', () => pm.expect(pm.response.json().status).to.eql('packing'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{order_id}}/pack",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{order_id}}", "pack"]
+            }
+          }
+        },
+        {
+          "name": "24. Office dispatches the order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status out_for_delivery', () => pm.expect(pm.response.json().status).to.eql('out_for_delivery'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{order_id}}/dispatch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{order_id}}", "dispatch"]
+            }
+          }
+        },
+        {
+          "name": "25. Office marks order delivered",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status delivered', () => pm.expect(pm.response.json().status).to.eql('delivered'));",
+                  "const j = pm.response.json();",
+                  "pm.test('History has 5 events', () => pm.expect(j.history.length).to.eql(5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/orders/{{order_id}}/deliver",
+              "host": ["{{base_url}}"],
+              "path": ["api", "orders", "{{order_id}}", "deliver"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Explore",
+      "description": "Ad-hoc requests grouped by domain. IDs referenced here come from collection variables — run the matching End-to-End step first (or set the variable manually).",
+      "item": [
+        {
+          "name": "Auth",
+          "item": [
+            {
+              "name": "Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/me",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "me"]
+                }
+              }
+            },
+            {
+              "name": "Refresh",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/refresh",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "refresh"]
+                }
+              }
+            },
+            {
+              "name": "Change password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"current_password\": \"{{admin_password}}\",\n  \"new_password\": \"NewAdminPass123\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/auth/change-password",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "change-password"]
+                }
+              }
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/logout",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "logout"]
+                }
+              }
+            },
+            {
+              "name": "Logout all",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/auth/logout-all",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "logout-all"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Users",
+          "item": [
+            {
+              "name": "List users",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/users?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "role", "value": "sales_rep", "disabled": true },
+                    { "key": "status", "value": "active", "disabled": true },
+                    { "key": "search", "value": "priya", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get user",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{office_user_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users", "{{office_user_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Update user",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phone\": \"+91-98450-99999\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{office_user_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users", "{{office_user_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Deactivate user",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"status\": \"inactive\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{rep_user_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users", "{{rep_user_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Delete user",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{rep_user_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users", "{{rep_user_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Categories",
+          "item": [
+            {
+              "name": "List categories",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/categories",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "categories"]
+                }
+              }
+            },
+            {
+              "name": "Get category",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/categories/{{category_dog_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "categories", "{{category_dog_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Update category",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"description\": \"Kibble, wet, treats and toppers\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/categories/{{category_dog_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "categories", "{{category_dog_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Delete category (refuses if it still has subcategories)",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/categories/{{category_dog_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "categories", "{{category_dog_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subcategories",
+          "item": [
+            {
+              "name": "List all subcategories (frontend dropdown)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/subcategories",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "subcategories"]
+                }
+              }
+            },
+            {
+              "name": "List filtered by category",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/subcategories?category_id={{category_dog_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "subcategories"],
+                  "query": [{ "key": "category_id", "value": "{{category_dog_id}}" }]
+                }
+              }
+            },
+            {
+              "name": "Update subcategory",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"description\": \"Bagged dry food\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/subcategories/{{subcategory_dry_kibble_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "subcategories", "{{subcategory_dry_kibble_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Delete subcategory",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/subcategories/{{subcategory_dry_kibble_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "subcategories", "{{subcategory_dry_kibble_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products",
+          "item": [
+            {
+              "name": "List products",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/products?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "category_id", "value": "{{category_dog_id}}", "disabled": true },
+                    { "key": "subcategory_id", "value": "{{subcategory_dry_kibble_id}}", "disabled": true },
+                    { "key": "search", "value": "pedigree", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get product (variants have live inventory)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Create product — multi-axis (size x color)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Kong Classic Rubber Toy\",\n  \"subcategory_id\": \"{{subcategory_chew_id}}\",\n  \"base_price\": 550,\n  \"option_sets\": {\n    \"size\": [\"Small\", \"Medium\", \"Large\"],\n    \"color\": [\"Red\", \"Blue\"]\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products"]
+                }
+              }
+            },
+            {
+              "name": "Create product — single-SKU (no option_sets)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Petkin Dog Wipes\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"base_price\": 220\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products"]
+                }
+              }
+            },
+            {
+              "name": "Update product",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"description\": \"Updated description\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Add variant (grow the matrix later)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"size\": \"20kg\",\n  \"sku\": \"PED-CHK-20K\",\n  \"price\": 5400,\n  \"initial_stock\": 10,\n  \"reorder_level\": 5\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants"]
+                }
+              }
+            },
+            {
+              "name": "Delete variant",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Delete product",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Bulk upload (attach a .xlsx via Body -> form-data -> file)",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "file", "type": "file", "src": [] }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/bulk-upload",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "bulk-upload"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inventory",
+          "item": [
+            {
+              "name": "List inventory",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/inventory?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "product_id", "value": "{{product_id}}", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List low-stock",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/inventory?low_stock=true",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory"],
+                  "query": [{ "key": "low_stock", "value": "true" }]
+                }
+              }
+            },
+            {
+              "name": "Get inventory row",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/inventory/{{inventory_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory", "{{inventory_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Adjust on-hand (inventory route)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"delta\": -3, \"reason\": \"Damaged during unloading\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/inventory/{{inventory_id}}/adjust",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory", "{{inventory_id}}", "adjust"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stores",
+          "item": [
+            {
+              "name": "List stores",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "status", "value": "approved", "disabled": true },
+                    { "key": "search", "value": "happy", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get store",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Update store",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"notes\": \"Deliver only on weekdays\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Reject store",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"reason\": \"Duplicate of an existing store\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/reject",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "reject"]
+                }
+              }
+            },
+            {
+              "name": "Reassign store to another rep",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"sales_rep_id\": \"{{rep_user_id}}\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/assign",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "assign"]
+                }
+              }
+            },
+            {
+              "name": "Delete store",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Attendance",
+          "item": [
+            {
+              "name": "List attendance",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/attendance?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "attendance"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "store_id", "value": "{{store_id}}", "disabled": true },
+                    { "key": "user_id", "value": "{{rep_user_id}}", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Mark attendance FAILS outside 100m",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": 12.9800,\n  \"lng\": 77.6000,\n  \"notes\": \"Wrong location\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/attendance",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "attendance"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Orders",
+          "item": [
+            {
+              "name": "List orders",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "store_id", "value": "{{store_id}}", "disabled": true },
+                    { "key": "status", "value": "placed", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get order (with history[])",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Cancel order (only when 'placed')",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{ \"reason\": \"Store changed their mind\" }" },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/cancel",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "cancel"]
+                }
+              }
+            },
+            {
+              "name": "Order over credit limit (should fail 400)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lines\": [\n    { \"product_id\": \"{{product_id}}\", \"variant_id\": \"{{variant_id}}\", \"qty\": 10000 }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders"]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
