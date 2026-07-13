@@ -97,9 +97,12 @@ class ProductRepository:
 
     @staticmethod
     def insert(
+        *,
         name,
-        category_id,
         subcategory_id,
+        subcategory_name,
+        category_id,
+        category_name,
         description,
         base_price,
         discount_price,
@@ -108,8 +111,10 @@ class ProductRepository:
         now = now_utc()
         doc = {
             "name": name,
-            "category_id": category_id,
             "subcategory_id": subcategory_id,
+            "subcategory_name": subcategory_name,
+            "category_id": category_id,
+            "category_name": category_name,
             "description": description,
             "base_price": float(base_price),
             "discount_price": (
@@ -122,6 +127,27 @@ class ProductRepository:
         res = ProductRepository._coll().insert_one(doc)
         doc["_id"] = str(res.inserted_id)
         return _to_public(doc)
+
+    @staticmethod
+    def refresh_taxonomy_names(*, subcategory_id=None, category_id=None,
+                                subcategory_name=None, category_name=None):
+        """Keep denormalised names on products in sync when a subcategory or
+        category is renamed. Pass whichever ids to target."""
+        patch = {"updated_at": now_utc()}
+        if subcategory_name is not None:
+            patch["subcategory_name"] = subcategory_name
+        if category_name is not None:
+            patch["category_name"] = category_name
+        if len(patch) == 1:
+            return
+        q = {}
+        if subcategory_id:
+            q["subcategory_id"] = subcategory_id
+        if category_id:
+            q["category_id"] = category_id
+        if not q:
+            return
+        ProductRepository._coll().update_many(q, {"$set": patch})
 
     @staticmethod
     def update(product_id, patch):

@@ -13,6 +13,7 @@ from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_any_user, require_office
 from repository.category_repo import CategoryRepository
 from repository.product_repo import ProductRepository
+from repository.subcategory_repo import SubcategoryRepository
 from schemas.product import (
     BulkUploadResponse,
     Product,
@@ -31,14 +32,19 @@ router = APIRouter(prefix="/products", tags=["products"])
 _MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
-def _ensure_category(category_id, subcategory_id):
-    cat = CategoryRepository.by_id(category_id)
-    if not cat:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown category")
-    if subcategory_id and not any(
-        s["id"] == subcategory_id for s in cat["subcategories"]
-    ):
+def _resolve_subcategory(subcategory_id):
+    """Look up the subcategory and its parent category. Returns the pair
+    (sub_doc, cat_doc). Raises 400 if either is missing."""
+    sub = SubcategoryRepository.by_id(subcategory_id)
+    if not sub:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown subcategory")
+    cat = CategoryRepository.by_id(sub["category_id"])
+    if not cat:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Subcategory points at a category that no longer exists.",
+        )
+    return sub, cat
 
 
 @router.get("", response_model=ProductListResponse)
@@ -58,9 +64,7 @@ async def list_products(
         skip=skip,
         limit=page_size,
     )
-    return ProductListResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )
+    return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{product_id}", response_model=Product)
@@ -77,11 +81,13 @@ async def create_product(
     request: Request,
     current=Depends(require_office),
 ):
-    _ensure_category(payload.category_id, payload.subcategory_id)
+    sub, cat = _resolve_subcategory(payload.subcategory_id)
     p = ProductRepository.insert(
         name=payload.name,
-        category_id=payload.category_id,
-        subcategory_id=payload.subcategory_id,
+        subcategory_id=sub["_id"],
+        subcategory_name=sub["name"],
+        category_id=cat["_id"],
+        category_name=cat["name"],
         description=payload.description,
         base_price=payload.base_price,
         discount_price=payload.discount_price,
@@ -92,7 +98,11 @@ async def create_product(
         ResourceType.PRODUCT,
         resource_id=p["_id"],
         actor=current["user"],
-        after={"name": p["name"], "category_id": p["category_id"]},
+        after={
+            "name": p["name"],
+            "subcategory_id": p["subcategory_id"],
+            "category_id": p["category_id"],
+        },
         request=request,
     )
     return p
@@ -109,10 +119,15 @@ async def update_product(
     if not before:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
     patch = payload.model_dump(exclude_unset=True)
-    if "category_id" in patch or "subcategory_id" in patch:
-        cat_id = patch.get("category_id", before["category_id"])
-        sub_id = patch.get("subcategory_id", before.get("subcategory_id"))
-        _ensure_category(cat_id, sub_id)
+
+    # Moving the product to a different subcategory: re-resolve its parent
+    # so category_id + denormalised names stay consistent.
+    if "subcategory_id" in patch and patch["subcategory_id"] is not None:
+        sub, cat = _resolve_subcategory(patch["subcategory_id"])
+        patch["subcategory_name"] = sub["name"]
+        patch["category_id"] = cat["_id"]
+        patch["category_name"] = cat["name"]
+
     after = ProductRepository.update(product_id, patch)
     record(
         AuditAction.PRODUCT_UPDATE,

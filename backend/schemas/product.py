@@ -40,8 +40,7 @@ class StockAdjust(BaseModel):
 
 class ProductCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    category_id: str
-    subcategory_id: str | None = None
+    subcategory_id: str
     description: str | None = Field(default=None, max_length=4000)
     base_price: float = Field(ge=0)
     discount_price: float | None = Field(default=None, ge=0)
@@ -50,7 +49,6 @@ class ProductCreate(BaseModel):
 
 class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    category_id: str | None = None
     subcategory_id: str | None = None
     description: str | None = Field(default=None, max_length=4000)
     base_price: float | None = Field(default=None, ge=0)
@@ -62,8 +60,10 @@ class Product(BaseModel):
 
     id: str = Field(alias="_id")
     name: str
+    subcategory_id: str
+    subcategory_name: str | None = None
     category_id: str
-    subcategory_id: str | None = None
+    category_name: str | None = None
     description: str | None = None
     base_price: float
     discount_price: float | None = None

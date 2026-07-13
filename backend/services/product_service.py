@@ -17,6 +17,7 @@ from openpyxl import load_workbook
 
 from repository.category_repo import CategoryRepository
 from repository.product_repo import ProductRepository
+from repository.subcategory_repo import SubcategoryRepository
 
 _HEADER_ALIASES = {
     "name": "name",
@@ -95,20 +96,34 @@ def _to_int(v):
         return None
 
 
-def _resolve_category(name):
-    if not name:
-        return None, None
-    cat = CategoryRepository.by_name(name)
-    return cat, None if cat else f"Unknown category '{name}'"
+def _resolve_taxonomy(category_name, subcategory_name):
+    """Resolve the (category, subcategory) pair from the two sheet columns.
 
-
-def _resolve_subcategory(cat, name):
-    if not cat or not name:
-        return None, None
-    for s in cat.get("subcategories") or []:
-        if s["name"].lower() == name.lower():
-            return s["id"], None
-    return None, f"Unknown subcategory '{name}' in category '{cat['name']}'"
+    - If both are supplied: category must exist, subcategory must exist under
+      it (name lookup, case-insensitive on subcategory).
+    - If only `category` is supplied: subcategory is left None.
+    - If only `subcategory` is supplied: reject — subcategory names aren't
+      globally unique, so we need a category to disambiguate.
+    """
+    if not category_name:
+        return None, None, "'category' column is required"
+    cat = CategoryRepository.by_name(category_name)
+    if not cat:
+        return None, None, f"Unknown category '{category_name}'"
+    if not subcategory_name:
+        return cat, None, None
+    # Case-insensitive match to be forgiving on Excel input.
+    subs, _ = SubcategoryRepository.list(category_id=cat["_id"], limit=500)
+    sub = next(
+        (s for s in subs if s["name"].lower() == subcategory_name.lower()),
+        None,
+    )
+    if not sub:
+        return None, None, (
+            f"Unknown subcategory '{subcategory_name}' in category "
+            f"'{cat['name']}'"
+        )
+    return cat, sub, None
 
 
 def parse_products_workbook(file_bytes):
@@ -194,28 +209,27 @@ def import_products(file_bytes):
         bundle = by_name[key]
         head = bundle["first"]
 
-        cat, cat_err = _resolve_category(head["category"])
-        if cat_err:
+        cat, sub, tax_err = _resolve_taxonomy(head["category"], head["subcategory"])
+        if tax_err:
             reports.append(
-                {"row": head["_row"], "action": "failed", "product_name": key, "error": cat_err}
+                {"row": head["_row"], "action": "failed", "product_name": key, "error": tax_err}
             )
             failed += len(bundle["variants"])
             continue
-
-        sub_id = None
-        if head["subcategory"]:
-            sub_id, sub_err = _resolve_subcategory(cat, head["subcategory"])
-            if sub_err:
-                reports.append(
-                    {
-                        "row": head["_row"],
-                        "action": "failed",
-                        "product_name": key,
-                        "error": sub_err,
-                    }
-                )
-                failed += len(bundle["variants"])
-                continue
+        # Bulk upload requires a subcategory — Product now stores it as a
+        # required field. Reject rows that only supplied a category so the
+        # sheet can't create half-tagged products.
+        if sub is None:
+            reports.append(
+                {
+                    "row": head["_row"],
+                    "action": "failed",
+                    "product_name": key,
+                    "error": "'subcategory' column is required for every product",
+                }
+            )
+            failed += len(bundle["variants"])
+            continue
 
         base_price = head["base_price"]
         if base_price is None:
@@ -258,8 +272,10 @@ def import_products(file_bytes):
             ProductRepository.update(
                 existing["_id"],
                 {
+                    "subcategory_id": sub["_id"],
+                    "subcategory_name": sub["name"],
                     "category_id": cat["_id"],
-                    "subcategory_id": sub_id,
+                    "category_name": cat["name"],
                     "description": head["description"],
                     "base_price": base_price,
                     "discount_price": head["discount_price"],
@@ -275,8 +291,10 @@ def import_products(file_bytes):
         else:
             ProductRepository.insert(
                 name=key,
+                subcategory_id=sub["_id"],
+                subcategory_name=sub["name"],
                 category_id=cat["_id"],
-                subcategory_id=sub_id,
+                category_name=cat["name"],
                 description=head["description"],
                 base_price=base_price,
                 discount_price=head["discount_price"],

@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     SESSIONS_COLL: str = "sessions"
     AUDIT_COLL: str = "audit_log"
     CATEGORIES_COLL: str = "categories"
+    SUBCATEGORIES_COLL: str = "subcategories"
     PRODUCTS_COLL: str = "products"
     STORES_COLL: str = "stores"
     ATTENDANCE_COLL: str = "attendance"

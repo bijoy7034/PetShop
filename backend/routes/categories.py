@@ -3,13 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_any_user, require_office
 from repository.category_repo import CategoryRepository
+from repository.subcategory_repo import SubcategoryRepository
 from schemas.category import (
     Category,
     CategoryCreate,
     CategoryListResponse,
     CategoryUpdate,
-    SubcategoryCreate,
-    SubcategoryUpdate,
 )
 from services.audit_service import record
 
@@ -68,6 +67,14 @@ async def update_category(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
     patch = payload.model_dump(exclude_unset=True)
     after = CategoryRepository.update(cat_id, patch)
+    # Keep denormalised category_name in sync on child subcategories AND on
+    # every product tagged with this category.
+    if "name" in patch and patch["name"] and patch["name"] != before["name"]:
+        SubcategoryRepository.refresh_category_name(cat_id, patch["name"])
+        from repository.product_repo import ProductRepository
+        ProductRepository.refresh_taxonomy_names(
+            category_id=cat_id, category_name=patch["name"]
+        )
     record(
         AuditAction.CATEGORY_UPDATE,
         ResourceType.CATEGORY,
@@ -89,96 +96,23 @@ async def delete_category(
     target = CategoryRepository.by_id(cat_id)
     if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
-    ok = CategoryRepository.delete(cat_id)
-    if not ok:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
+    # Refuse to delete a category that still has subcategories — the office
+    # should delete or move the subcategories first, otherwise they'd
+    # dangle with a stale category_id.
+    remaining = SubcategoryRepository.list(category_id=cat_id, limit=1)[1]
+    if remaining:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Cannot delete a category that still has subcategories. "
+            "Delete or move them first.",
+        )
+    CategoryRepository.delete(cat_id)
     record(
         AuditAction.CATEGORY_DELETE,
         ResourceType.CATEGORY,
         resource_id=cat_id,
         actor=current["user"],
         before={"name": target["name"]},
-        request=request,
-    )
-    return None
-
-
-@router.post(
-    "/{cat_id}/subcategories",
-    response_model=Category,
-    status_code=status.HTTP_201_CREATED,
-)
-async def add_subcategory(
-    cat_id: str,
-    payload: SubcategoryCreate,
-    request: Request,
-    current=Depends(require_office),
-):
-    cat = CategoryRepository.by_id(cat_id)
-    if not cat:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
-    if any(s["name"].lower() == payload.name.lower() for s in cat["subcategories"]):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Subcategory with that name already exists"
-        )
-    after = CategoryRepository.add_subcategory(cat_id, payload.name)
-    record(
-        AuditAction.SUBCATEGORY_CREATE,
-        ResourceType.CATEGORY,
-        resource_id=cat_id,
-        actor=current["user"],
-        after={"name": payload.name},
-        request=request,
-    )
-    return after
-
-
-@router.patch(
-    "/{cat_id}/subcategories/{sub_id}",
-    response_model=Category,
-)
-async def update_subcategory(
-    cat_id: str,
-    sub_id: str,
-    payload: SubcategoryUpdate,
-    request: Request,
-    current=Depends(require_office),
-):
-    if not CategoryRepository.has_subcategory(cat_id, sub_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subcategory not found")
-    if payload.name is None:
-        return CategoryRepository.by_id(cat_id)
-    after = CategoryRepository.update_subcategory(cat_id, sub_id, payload.name)
-    record(
-        AuditAction.SUBCATEGORY_UPDATE,
-        ResourceType.CATEGORY,
-        resource_id=cat_id,
-        actor=current["user"],
-        after={"sub_id": sub_id, "name": payload.name},
-        request=request,
-    )
-    return after
-
-
-@router.delete(
-    "/{cat_id}/subcategories/{sub_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def remove_subcategory(
-    cat_id: str,
-    sub_id: str,
-    request: Request,
-    current=Depends(require_office),
-):
-    if not CategoryRepository.has_subcategory(cat_id, sub_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subcategory not found")
-    CategoryRepository.remove_subcategory(cat_id, sub_id)
-    record(
-        AuditAction.SUBCATEGORY_DELETE,
-        ResourceType.CATEGORY,
-        resource_id=cat_id,
-        actor=current["user"],
-        before={"sub_id": sub_id},
         request=request,
     )
     return None

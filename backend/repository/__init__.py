@@ -5,6 +5,7 @@ from repository.order_repo import OrderRepository
 from repository.product_repo import ProductRepository
 from repository.session_repo import SessionRepository
 from repository.store_repo import StoreRepository
+from repository.subcategory_repo import SubcategoryRepository
 from repository.user_repo import UserRepository
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "ProductRepository",
     "SessionRepository",
     "StoreRepository",
+    "SubcategoryRepository",
     "UserRepository",
 ]

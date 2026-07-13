@@ -168,6 +168,7 @@
     <li><a href="#auth">Auth</a></li>
     <li><a href="#users">Users</a></li>
     <li><a href="#categories">Categories</a></li>
+    <li><a href="#subcategories">Subcategories</a></li>
     <li><a href="#products">Products</a></li>
     <li><a href="#stores">Stores</a></li>
     <li><a href="#attendance">Attendance</a></li>
@@ -256,26 +257,26 @@ POST /api/users
 <p class="muted">Response contains <code>temporary_password</code> — give it to the user; they must change on first login.</p>
 
 <h3>2) Categories &amp; subcategories (office)</h3>
+<p>Both are first-class collections. Products reference a <strong>subcategory</strong>; the server auto-fills the parent <code>category_id</code> on the product from the subcategory. Frontend only needs a "pick a subcategory" dropdown.</p>
 <pre><code>POST /api/categories  { "name": "Dog Food",    "description": "Kibble, wet food, treats" }
 POST /api/categories  { "name": "Cat Food",    "description": "Kibble, wet food, treats" }
 POST /api/categories  { "name": "Toys",        "description": "Chew, fetch, puzzle" }
-POST /api/categories  { "name": "Grooming",    "description": "Shampoo, brushes, clippers" }
-POST /api/categories  { "name": "Accessories", "description": "Leashes, bowls, collars" }
 
-// Subcategories (attach to the returned category IDs)
-POST /api/categories/{cat_id}/subcategories  { "name": "Dry kibble" }
-POST /api/categories/{cat_id}/subcategories  { "name": "Wet food" }
-POST /api/categories/{cat_id}/subcategories  { "name": "Treats" }</code></pre>
+// Subcategories are separate documents that reference a category_id.
+// (name, category_id) is unique — same name can exist under different categories.
+POST /api/subcategories  { "name": "Dry kibble", "category_id": "{dog_food_id}" }
+POST /api/subcategories  { "name": "Wet food",   "category_id": "{dog_food_id}" }
+POST /api/subcategories  { "name": "Dry kibble", "category_id": "{cat_food_id}" }
+POST /api/subcategories  { "name": "Chew",       "category_id": "{toys_id}" }</code></pre>
 
 <h3>3) Products with variants (office)</h3>
+<p>Only <code>subcategory_id</code> is sent by the client — the server looks up the parent category and denormalises both IDs and names onto the product.</p>
 <pre><code>POST /api/products
 {
   "name": "Pedigree Adult Chicken &amp; Vegetables",
-  "category_id": "{dog_food_id}",
-  "subcategory_id": "{dry_kibble_id}",
+  "subcategory_id": "{dog_dry_kibble_id}",
   "description": "Adult dog food with real chicken and vegetables.",
   "base_price": 350,
-  "discount_price": null,
   "variants": [
     { "size": "1kg",  "sku": "PED-CHK-1K",  "price": 350,  "stock": 200 },
     { "size": "3kg",  "sku": "PED-CHK-3K",  "price": 950,  "stock": 120 },
@@ -286,20 +287,19 @@ POST /api/categories/{cat_id}/subcategories  { "name": "Treats" }</code></pre>
 POST /api/products
 {
   "name": "Whiskas Ocean Fish",
-  "category_id": "{cat_food_id}",
-  "subcategory_id": "{dry_kibble_id}",
+  "subcategory_id": "{cat_dry_kibble_id}",
   "base_price": 280,
   "variants": [
-    { "size": "450g", "sku": "WSK-OF-450",  "price": 280,  "stock": 180 },
-    { "size": "1.2kg","sku": "WSK-OF-1200", "price": 620,  "stock": 90 },
-    { "size": "3kg",  "sku": "WSK-OF-3K",   "price": 1400, "stock": 40 }
+    { "size": "450g",  "sku": "WSK-OF-450",  "price": 280,  "stock": 180 },
+    { "size": "1.2kg", "sku": "WSK-OF-1200", "price": 620,  "stock": 90  },
+    { "size": "3kg",   "sku": "WSK-OF-3K",   "price": 1400, "stock": 40  }
   ]
 }
 
 POST /api/products
 {
   "name": "Kong Classic Rubber Toy",
-  "category_id": "{toys_id}",
+  "subcategory_id": "{toy_chew_id}",
   "base_price": 550,
   "variants": [
     { "size": "Small",  "color": "Red", "sku": "KNG-CL-S", "price": 550,  "stock": 60 },
@@ -310,7 +310,7 @@ POST /api/products
 
 <h3>3b) Or bulk-upload from Excel</h3>
 <p>Headers accepted (case-insensitive): <code>name</code>, <code>category</code>, <code>subcategory</code>, <code>description</code>, <code>base_price</code>, <code>discount_price</code>, <code>variant_size</code>, <code>variant_weight</code>, <code>variant_color</code>, <code>variant_sku</code>, <code>variant_price</code>, <code>variant_discount_price</code>, <code>variant_stock</code>.</p>
-<p>Rows sharing the same <code>name</code> are merged into one product with multiple variants.</p>
+<p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>category</code> AND <code>subcategory</code> are <strong>required</strong> — the sheet resolves them by name (case-insensitive on subcategory) and rejects rows referencing unknown ones. Categories and subcategories must exist beforehand (create them via the API before uploading).</p>
 
 <h3>4) Sales rep adds a store</h3>
 <pre><code>// Login as sales_rep first, then:
@@ -499,20 +499,54 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method DELETE">DELETE</span> /api/categories/{cat_id} <span class="role">office</span></h4>
+  <p>Refuses (<code>409</code>) if the category still has any subcategory. Delete or move the subcategories first.</p>
+</div>
+
+<!-- ========== SUBCATEGORIES ========== -->
+<h2 id="subcategories">Subcategories</h2>
+<p class="muted">First-class collection. Each subcategory belongs to exactly one category. (<code>name</code>, <code>category_id</code>) is unique — the same name can exist under different categories.</p>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/subcategories <span class="role">any user</span></h4>
+  <p>Flat list — this is what the frontend product-create dropdown queries. Query: <code>category_id</code> (filter to one category), <code>search</code>, <code>page</code>, <code>page_size</code>. Response items include the denormalised <code>category_name</code> so you can render "Dog Food → Dry kibble" without a join.</p>
+  <p class="label">Response 200 (excerpt)</p>
+  <pre><code>{
+  "items": [
+    { "_id": "6a...", "name": "Dry kibble", "category_id": "...",
+      "category_name": "Dog Food", "description": null,
+      "created_at": "...", "updated_at": "..." }
+  ],
+  "total": 4, "page": 1, "page_size": 200
+}</code></pre>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method POST">POST</span> /api/categories/{cat_id}/subcategories <span class="role">office</span></h4>
+  <h4><span class="method GET">GET</span> /api/subcategories/{sub_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/subcategories <span class="role">office</span></h4>
   <p class="label">Body</p>
-  <pre><code>{ "name": "Dry kibble" }</code></pre>
+  <pre><code>{
+  "name": "Dry kibble",
+  "category_id": "{dog_food_id}",
+  "description": "Optional"
+}</code></pre>
+  <p class="label">Errors</p>
+  <ul>
+    <li><code>400</code> — unknown <code>category_id</code></li>
+    <li><code>409</code> — a subcategory with that name already exists under this category</li>
+  </ul>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method PATCH">PATCH</span> /api/categories/{cat_id}/subcategories/{sub_id} <span class="role">office</span></h4>
+  <h4><span class="method PATCH">PATCH</span> /api/subcategories/{sub_id} <span class="role">office</span></h4>
+  <p>Rename or move to a different category. A rename propagates to every product tagged with this subcategory (denormalised <code>subcategory_name</code> is updated). Moving to another category rewrites <code>category_id</code> and <code>category_name</code> on the affected products too.</p>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method DELETE">DELETE</span> /api/categories/{cat_id}/subcategories/{sub_id} <span class="role">office</span></h4>
+  <h4><span class="method DELETE">DELETE</span> /api/subcategories/{sub_id} <span class="role">office</span></h4>
+  <p class="muted">Products previously tagged with this subcategory will retain their stored <code>subcategory_id</code>/<code>subcategory_name</code> — they'll effectively point at a deleted row. Consider re-tagging affected products first.</p>
 </div>
 
 <!-- ========== PRODUCTS ========== -->
@@ -529,10 +563,10 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products <span class="role">office</span></h4>
+  <p>Only <code>subcategory_id</code> is sent — server denormalises <code>category_id</code>, <code>category_name</code>, and <code>subcategory_name</code> onto the product.</p>
   <p class="label">Body</p>
   <pre><code>{
   "name": "Pedigree Adult Chicken &amp; Vegetables",
-  "category_id": "{cat_id}",
   "subcategory_id": "{sub_id}",
   "description": "Adult dog food with real chicken and vegetables.",
   "base_price": 350,
@@ -542,11 +576,18 @@ POST /api/orders/{order_id}/deliver</code></pre>
     { "size": "3kg", "sku": "PED-CHK-3K", "price": 950, "stock": 120 }
   ]
 }</code></pre>
+  <p class="label">Response 201 (excerpt)</p>
+  <pre><code>{
+  "_id": "6a...", "name": "Pedigree...",
+  "subcategory_id": "...", "subcategory_name": "Dry kibble",
+  "category_id":    "...", "category_name":    "Dog Food",
+  "base_price": 350, ...
+}</code></pre>
 </div>
 
 <div class="endpoint">
   <h4><span class="method PATCH">PATCH</span> /api/products/{product_id} <span class="role">office</span></h4>
-  <p>Patch product-level fields. Variants are managed via the sub-routes below.</p>
+  <p>Patch product-level fields. Passing a new <code>subcategory_id</code> re-resolves the parent category and rewrites both IDs and denormalised names. Variants are managed via the sub-routes below.</p>
 </div>
 
 <div class="endpoint">
