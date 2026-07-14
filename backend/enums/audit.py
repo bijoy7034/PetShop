@@ -73,3 +73,4 @@ class AuditAction(StrEnum):
     ORDER_PACK = "order.pack"
     ORDER_DISPATCH = "order.dispatch"
     ORDER_DELIVER = "order.deliver"
+    ORDER_PAYMENT_RECORDED = "order.payment_recorded"

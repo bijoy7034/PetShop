@@ -10,6 +10,26 @@ class OrderStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class PaymentStatus(StrEnum):
+    """Independent from OrderStatus — a delivered order can still be
+    unpaid, and an order can be paid before it ships."""
+    PENDING = "pending"
+    PARTIALLY_PAID = "partially_paid"
+    PAID = "paid"
+
+
+def payment_status_from(total, amount_paid):
+    """Derive the payment status from the running totals so it can never
+    disagree with the money on file."""
+    total = float(total or 0)
+    paid = float(amount_paid or 0)
+    if paid <= 0:
+        return PaymentStatus.PENDING.value
+    if paid >= total:
+        return PaymentStatus.PAID.value
+    return PaymentStatus.PARTIALLY_PAID.value
+
+
 # Legal transitions used by the office-driven state machine. Sales rep
 # cancellation is a separate check (only allowed from PLACED) enforced in
 # the route, not this table.

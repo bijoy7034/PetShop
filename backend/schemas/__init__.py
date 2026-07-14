@@ -25,6 +25,8 @@ from schemas.order import (
     OrderLineCreate,
     OrderListResponse,
     OrderStatusEvent,
+    PaymentCreate,
+    PaymentEvent,
 )
 from schemas.inventory import (
     Inventory,
@@ -85,6 +87,8 @@ __all__ = [
     "OrderLineCreate",
     "OrderListResponse",
     "OrderStatusEvent",
+    "PaymentCreate",
+    "PaymentEvent",
     "Inventory",
     "InventoryListResponse",
     "InventoryUpdate",

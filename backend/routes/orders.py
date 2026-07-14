@@ -6,7 +6,13 @@ from enums.store import StoreStatus
 from middleware.auth import require_any_user, require_office, require_sales_rep
 from repository.order_repo import OrderRepository
 from repository.store_repo import StoreRepository
-from schemas.order import Order, OrderCancel, OrderCreate, OrderListResponse
+from schemas.order import (
+    Order,
+    OrderCancel,
+    OrderCreate,
+    OrderListResponse,
+    PaymentCreate,
+)
 from services.audit_service import record
 from services.order_service import (
     commit_inventory_for,
@@ -32,6 +38,7 @@ def _visible(user, order):
 async def list_orders(
     store_id: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
+    payment_status: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
@@ -43,6 +50,7 @@ async def list_orders(
         sales_rep_id=sales_rep_id,
         store_id=store_id,
         status=status_filter,
+        payment_status=payment_status,
         skip=skip,
         limit=page_size,
     )
@@ -198,6 +206,72 @@ def _transition_route(target_status, audit_action):
         return after
 
     return _handler
+
+
+@router.post("/{order_id}/payment", response_model=Order)
+async def record_payment(
+    order_id: str,
+    payload: PaymentCreate,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Record a payment against an order. Independent of the delivery
+    status — an order can be paid before, during, or after fulfillment.
+
+    Server derives payment_status from the running total: 0 -> pending,
+    partial -> partially_paid, full -> paid. Overpayment is refused.
+    Each payment also decrements store.credit_used by the same amount so
+    credit is released as receivables are settled.
+    """
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order["status"] == OrderStatus.CANCELLED.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Cannot record a payment against a cancelled order.",
+        )
+    outstanding = float(order.get("outstanding") or 0)
+    if payload.amount > outstanding + 1e-6:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Payment {payload.amount:.2f} exceeds outstanding balance "
+            f"{outstanding:.2f}.",
+        )
+
+    after = OrderRepository.record_payment(
+        order_id, payload.amount, payload.method, payload.notes, current["user"]
+    )
+    if after is None:
+        # Overpayment guard or concurrent write.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Payment could not be recorded (concurrent write or overpayment). Retry.",
+        )
+
+    # Release the paid amount from the store's credit line (accounts
+    # receivable settled). Best-effort — the payment is already durable,
+    # a credit-release failure is worth surfacing but not worth reversing.
+    StoreRepository.adjust_credit_used(order["store_id"], -payload.amount)
+
+    record(
+        AuditAction.ORDER_PAYMENT_RECORDED,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={
+            "amount_paid": order.get("amount_paid"),
+            "payment_status": order.get("payment_status"),
+        },
+        after={
+            "amount_paid": after["amount_paid"],
+            "payment_status": after["payment_status"],
+            "payment_amount": payload.amount,
+            "method": payload.method,
+        },
+        request=request,
+    )
+    return after
 
 
 router.post("/{order_id}/accept", response_model=Order)(

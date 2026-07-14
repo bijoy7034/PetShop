@@ -1622,6 +1622,44 @@
               }
             },
             {
+              "name": "Record partial payment against an order",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 500,\n  \"method\": \"UPI\",\n  \"notes\": \"UPI ref UPI/2026/A1B2\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/payment",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "payment"]
+                }
+              }
+            },
+            {
+              "name": "Record full payment (settles order)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 1250,\n  \"method\": \"Bank transfer\",\n  \"notes\": \"Neft txn 12345\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/payment",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "payment"]
+                }
+              }
+            },
+            {
               "name": "Order over credit limit (should fail 400)",
               "request": {
                 "method": "POST",

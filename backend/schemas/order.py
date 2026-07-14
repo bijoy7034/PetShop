@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from enums.order import OrderStatus
+from enums.order import OrderStatus, PaymentStatus
 
 
 class OrderLineCreate(BaseModel):
@@ -35,6 +35,21 @@ class OrderStatusEvent(BaseModel):
     note: str | None = None
 
 
+class PaymentEvent(BaseModel):
+    amount: float
+    method: str | None = None
+    notes: str | None = None
+    at: datetime
+    by_user_id: str | None = None
+    by_user_name: str | None = None
+
+
+class PaymentCreate(BaseModel):
+    amount: float = Field(gt=0)
+    method: str | None = Field(default=None, max_length=60)
+    notes: str | None = Field(default=None, max_length=500)
+
+
 class Order(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -49,6 +64,11 @@ class Order(BaseModel):
     notes: str | None = None
     history: list[OrderStatusEvent] = []
     cancel_reason: str | None = None
+    # Payment ledger — orthogonal to the delivery status.
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    amount_paid: float = 0.0
+    outstanding: float = 0.0
+    payment_history: list[PaymentEvent] = []
     created_at: datetime
     updated_at: datetime
 
