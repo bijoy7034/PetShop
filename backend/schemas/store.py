@@ -57,6 +57,7 @@ class Store(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(alias="_id")
+    code: str | None = None
     name: str
     location: str
     contact: ContactPerson

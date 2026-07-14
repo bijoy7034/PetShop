@@ -54,7 +54,9 @@ class Order(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(alias="_id")
+    code: str | None = None
     store_id: str
+    store_code: str | None = None
     store_name: str | None = None
     sales_rep_id: str
     sales_rep_name: str | None = None

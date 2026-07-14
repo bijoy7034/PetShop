@@ -5,6 +5,7 @@ from config.db import get_db
 from enums.store import StoreStatus
 from helpers.datetime import now_utc
 from helpers.mongo import oid_or_none, to_public_doc
+from repository.counter_repo import next_store_code
 
 
 class StoreRepository:
@@ -67,6 +68,7 @@ class StoreRepository:
     ):
         now = now_utc()
         doc = {
+            "code": next_store_code(),
             "name": name,
             "location": location,
             "contact": contact,

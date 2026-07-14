@@ -5,6 +5,7 @@ from config.db import get_db
 from enums.order import OrderStatus, PaymentStatus, payment_status_from
 from helpers.datetime import now_utc
 from helpers.mongo import oid_or_none, to_public_doc
+from repository.counter_repo import next_order_code
 
 
 def _with_outstanding(doc):
@@ -64,7 +65,9 @@ class OrderRepository:
     def insert(*, store, sales_rep, lines, total, notes):
         now = now_utc()
         doc = {
+            "code": next_order_code(),
             "store_id": store["_id"],
+            "store_code": store.get("code"),
             "store_name": store.get("name"),
             "sales_rep_id": sales_rep["_id"],
             "sales_rep_name": sales_rep.get("name"),

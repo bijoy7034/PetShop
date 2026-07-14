@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     STORES_COLL: str = "stores"
     VISITS_COLL: str = "visits"
     ORDERS_COLL: str = "orders"
+    COUNTERS_COLL: str = "_counters"
 
     # Attendance geo-fence radius in metres. Sales rep must be within this
     # distance of the store's saved coordinates to mark attendance.

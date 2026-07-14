@@ -1,10 +1,11 @@
 from bson import ObjectId
-from pymongo import ASCENDING
+from pymongo import ASCENDING, ReturnDocument
 
 from config.config import settings
 from config.db import get_db
 from helpers.datetime import now_utc
 from helpers.mongo import oid_or_none, to_public_doc
+from repository.counter_repo import next_product_code, variant_code
 
 
 def variant_label(v):
@@ -14,23 +15,28 @@ def variant_label(v):
     return " / ".join(parts) if parts else None
 
 
-def _serialize_variants(variants):
+def _serialize_variants(variants, *, product_code, start_seq):
     """Persist only variant-identity fields. Stock and reserved counts live
-    in the inventory collection — they're intentionally absent here."""
-    return [
-        {
-            "_id": ObjectId(),
-            "size": v.get("size"),
-            "weight": v.get("weight"),
-            "color": v.get("color"),
-            "sku": v.get("sku"),
-            "price": float(v["price"]),
-            "discount_price": (
-                float(v["discount_price"]) if v.get("discount_price") is not None else None
-            ),
-        }
-        for v in variants
-    ]
+    in the inventory collection — they're intentionally absent here. Each
+    variant is assigned a per-product code like PRD-0042-V03."""
+    out = []
+    for i, v in enumerate(variants):
+        out.append(
+            {
+                "_id": ObjectId(),
+                "code": variant_code(product_code, start_seq + i),
+                "seq": start_seq + i,
+                "size": v.get("size"),
+                "weight": v.get("weight"),
+                "color": v.get("color"),
+                "sku": v.get("sku"),
+                "price": float(v["price"]),
+                "discount_price": (
+                    float(v["discount_price"]) if v.get("discount_price") is not None else None
+                ),
+            }
+        )
+    return out
 
 
 def _hydrate_variants(variants):
@@ -40,6 +46,7 @@ def _hydrate_variants(variants):
     return [
         {
             "id": str(v["_id"]),
+            "code": v.get("code"),
             "size": v.get("size"),
             "weight": v.get("weight"),
             "color": v.get("color"),
@@ -124,8 +131,11 @@ class ProductRepository:
         variants,
     ):
         now = now_utc()
-        serialized = _serialize_variants(variants)
+        product_code = next_product_code()
+        serialized = _serialize_variants(variants, product_code=product_code, start_seq=1)
         doc = {
+            "code": product_code,
+            "next_variant_seq": len(serialized) + 1,
             "name": name,
             "subcategory_id": subcategory_id,
             "subcategory_name": subcategory_name,
@@ -202,7 +212,22 @@ class ProductRepository:
         oid = oid_or_none(product_id)
         if oid is None:
             return None, None
-        serialized = _serialize_variants([variant])[0]
+        # Atomically bump the product's per-variant counter so concurrent
+        # adds can't collide on the same sequence number, then push the
+        # variant with the code built from that seq. Two round trips, but
+        # correct under contention.
+        parent = ProductRepository._coll().find_one_and_update(
+            {"_id": oid},
+            {"$inc": {"next_variant_seq": 1}},
+            projection={"code": 1, "next_variant_seq": 1},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not parent:
+            return None, None
+        seq = int(parent["next_variant_seq"]) - 1
+        serialized = _serialize_variants(
+            [variant], product_code=parent.get("code"), start_seq=seq
+        )[0]
         ProductRepository._coll().update_one(
             {"_id": oid},
             {
@@ -260,15 +285,17 @@ class ProductRepository:
             return None
         doc = ProductRepository._coll().find_one(
             {"_id": oid, "variants._id": void},
-            {"name": 1, "variants.$": 1},
+            {"name": 1, "code": 1, "variants.$": 1},
         )
         if not doc or not doc.get("variants"):
             return None
         v = doc["variants"][0]
         return {
             "product_id": str(doc["_id"]),
+            "product_code": doc.get("code"),
             "product_name": doc["name"],
             "variant_id": str(v["_id"]),
+            "variant_code": v.get("code"),
             "variant_label": variant_label(v),
             "price": v["price"],
             "discount_price": v.get("discount_price"),

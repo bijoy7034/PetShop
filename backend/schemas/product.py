@@ -25,6 +25,7 @@ class VariantUpdate(BaseModel):
 
 class Variant(BaseModel):
     id: str
+    code: str | None = None
     size: str | None = None
     weight: str | None = None
     color: str | None = None
@@ -73,6 +74,7 @@ class Product(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(alias="_id")
+    code: str | None = None
     name: str
     subcategory_id: str
     subcategory_name: str | None = None

@@ -67,8 +67,6 @@ async def update_category(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
     patch = payload.model_dump(exclude_unset=True)
     after = CategoryRepository.update(cat_id, patch)
-    # Keep denormalised category_name in sync on child subcategories AND on
-    # every product tagged with this category.
     if "name" in patch and patch["name"] and patch["name"] != before["name"]:
         SubcategoryRepository.refresh_category_name(cat_id, patch["name"])
         from repository.product_repo import ProductRepository
