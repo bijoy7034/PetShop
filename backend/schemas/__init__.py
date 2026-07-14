@@ -1,4 +1,4 @@
-from schemas.attendance import Attendance, AttendanceListResponse, AttendanceMark
+from schemas.visit import Visit, VisitListResponse, VisitMark
 from schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
@@ -63,9 +63,9 @@ from schemas.user import (
 )
 
 __all__ = [
-    "Attendance",
-    "AttendanceListResponse",
-    "AttendanceMark",
+    "Visit",
+    "VisitListResponse",
+    "VisitMark",
     "ChangePasswordRequest",
     "LoginRequest",
     "MeResponse",

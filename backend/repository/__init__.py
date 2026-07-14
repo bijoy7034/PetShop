@@ -1,4 +1,3 @@
-from repository.attendance_repo import AttendanceRepository
 from repository.audit_repo import AuditRepository
 from repository.category_repo import CategoryRepository
 from repository.inventory_repo import InventoryRepository
@@ -8,9 +7,9 @@ from repository.session_repo import SessionRepository
 from repository.store_repo import StoreRepository
 from repository.subcategory_repo import SubcategoryRepository
 from repository.user_repo import UserRepository
+from repository.visit_repo import VisitRepository
 
 __all__ = [
-    "AttendanceRepository",
     "AuditRepository",
     "CategoryRepository",
     "InventoryRepository",
@@ -20,4 +19,5 @@ __all__ = [
     "StoreRepository",
     "SubcategoryRepository",
     "UserRepository",
+    "VisitRepository",
 ]

@@ -649,38 +649,7 @@
           }
         },
         {
-          "name": "20. Mark attendance (within geo-fence)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "pm.test('Distance under 100m', () => pm.expect(pm.response.json().distance_meters).to.be.below(100));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"notes\": \"Weekly visit\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/attendance",
-              "host": ["{{base_url}}"],
-              "path": ["api", "attendance"]
-            }
-          }
-        },
-        {
-          "name": "21. Sales rep places an order (5 units)",
+          "name": "20. Sales rep places an order (5 units)",
           "event": [
             {
               "listen": "test",
@@ -714,7 +683,72 @@
           }
         },
         {
-          "name": "22. Office logs in and accepts the order",
+          "name": "21. Sales rep logs the visit (order placed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const v = pm.response.json();",
+                  "pm.test('Distance under 100m', () => pm.expect(v.distance_meters).to.be.below(100));",
+                  "pm.test('Linked to order', () => pm.expect(v.order_id).to.eql(pm.collectionVariables.get('order_id')));",
+                  "pm.test('visit_date set', () => pm.expect(v.visit_date).to.match(/^\\d{4}-\\d{2}-\\d{2}$/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"order_id\": \"{{order_id}}\",\n  \"remarks\": \"Weekly visit; owner happy with the range\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/visits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visits"]
+            }
+          }
+        },
+        {
+          "name": "22. Duplicate visit for the same day should be rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('Message mentions today', () => pm.expect(pm.response.json().detail).to.include('today'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"no_order_reason\": \"Second visit today\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/visits",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visits"]
+            }
+          }
+        },
+        {
+          "name": "23. Office logs in and accepts the order",
           "event": [
             {
               "listen": "prerequest",
@@ -761,7 +795,7 @@
           }
         },
         {
-          "name": "23. Office marks order as packing",
+          "name": "24. Office marks order as packing",
           "event": [
             {
               "listen": "test",
@@ -784,7 +818,7 @@
           }
         },
         {
-          "name": "24. Office dispatches the order",
+          "name": "25. Office dispatches the order",
           "event": [
             {
               "listen": "test",
@@ -807,7 +841,7 @@
           }
         },
         {
-          "name": "25. Office marks order delivered",
+          "name": "26. Office marks order delivered",
           "event": [
             {
               "listen": "test",
@@ -1458,28 +1492,29 @@
           ]
         },
         {
-          "name": "Attendance",
+          "name": "Visits",
           "item": [
             {
-              "name": "List attendance",
+              "name": "List visits",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{base_url}}/api/attendance?page=1&page_size=50",
+                  "raw": "{{base_url}}/api/visits?page=1&page_size=50",
                   "host": ["{{base_url}}"],
-                  "path": ["api", "attendance"],
+                  "path": ["api", "visits"],
                   "query": [
                     { "key": "page", "value": "1" },
                     { "key": "page_size", "value": "50" },
                     { "key": "store_id", "value": "{{store_id}}", "disabled": true },
-                    { "key": "user_id", "value": "{{rep_user_id}}", "disabled": true }
+                    { "key": "user_id", "value": "{{rep_user_id}}", "disabled": true },
+                    { "key": "visit_date", "value": "2026-07-14", "disabled": true }
                   ]
                 }
               }
             },
             {
-              "name": "Mark attendance FAILS outside 100m",
+              "name": "Mark visit — no-order path",
               "request": {
                 "method": "POST",
                 "header": [
@@ -1488,12 +1523,50 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": 12.9800,\n  \"lng\": 77.6000,\n  \"notes\": \"Wrong location\"\n}"
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"no_order_reason\": \"Store closed for stock-taking; will revisit tomorrow\",\n  \"remarks\": \"Left samples\"\n}"
                 },
                 "url": {
-                  "raw": "{{base_url}}/api/attendance",
+                  "raw": "{{base_url}}/api/visits",
                   "host": ["{{base_url}}"],
-                  "path": ["api", "attendance"]
+                  "path": ["api", "visits"]
+                }
+              }
+            },
+            {
+              "name": "Mark visit FAILS outside 100m",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": 12.9800,\n  \"lng\": 77.6000,\n  \"no_order_reason\": \"Wrong location test\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/visits",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "visits"]
+                }
+              }
+            },
+            {
+              "name": "Mark visit FAILS with neither order_id nor no_order_reason (422)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"remarks\": \"Missing both\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/visits",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "visits"]
                 }
               }
             }

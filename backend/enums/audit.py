@@ -8,7 +8,7 @@ class ResourceType(StrEnum):
     PRODUCT = "product"
     INVENTORY = "inventory"
     STORE = "store"
-    ATTENDANCE = "attendance"
+    VISIT = "visit"
     ORDER = "order"
 
 
@@ -63,8 +63,8 @@ class AuditAction(StrEnum):
     STORE_REJECT = "store.reject"
     STORE_ASSIGN = "store.assign"
 
-    # attendance
-    ATTENDANCE_MARK = "attendance.mark"
+    # visit (sales rep field visit)
+    VISIT_MARK = "visit.mark"
 
     # order lifecycle
     ORDER_PLACE = "order.place"

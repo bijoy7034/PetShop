@@ -97,17 +97,37 @@ def _rewrite_msg(err):
     return "is invalid"
 
 
+def _is_whole_object_error(loc):
+    """A model_validator error has no field path — its loc is empty (or just
+    the body wrapper). Rendering "This field <msg>" reads awkwardly for
+    those; the raw message is already a full sentence."""
+    parts = [p for p in (loc or ()) if isinstance(p, str) and p != "body"]
+    return not parts
+
+
 def format_validation_errors(errors):
     seen = set()
     lines = []
     for err in errors or []:
-        label = _field_label(err.get("loc") or ())
+        loc = err.get("loc") or ()
         detail = _rewrite_msg(err)
-        key = (label, detail)
+        if _is_whole_object_error(loc):
+            # Uppercase-first, single sentence — no field label prefix.
+            sentence = detail.strip().rstrip(".")
+            if sentence:
+                sentence = sentence[0].upper() + sentence[1:]
+                line = f"{sentence}."
+            else:
+                line = "Some fields are invalid."
+            key = ("_root_", sentence)
+        else:
+            label = _field_label(loc)
+            key = (label, detail)
+            line = f"{label} {detail}."
         if key in seen:
             continue
         seen.add(key)
-        lines.append(f"{label} {detail}.")
+        lines.append(line)
     if not lines:
         return "Some fields are invalid."
     return " ".join(lines)

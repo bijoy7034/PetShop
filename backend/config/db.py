@@ -38,7 +38,6 @@ class MongoManager:
         self._client.admin.command("ping")
         logger.info(f"MongoDB connected: db={settings.DB_NAME}")
 
-        from repository.attendance_repo import AttendanceRepository
         from repository.audit_repo import AuditRepository
         from repository.category_repo import CategoryRepository
         from repository.inventory_repo import InventoryRepository
@@ -48,6 +47,7 @@ class MongoManager:
         from repository.store_repo import StoreRepository
         from repository.subcategory_repo import SubcategoryRepository
         from repository.user_repo import UserRepository
+        from repository.visit_repo import VisitRepository
 
         UserRepository.ensure_indexes()
         SessionRepository.ensure_indexes()
@@ -57,11 +57,11 @@ class MongoManager:
         ProductRepository.ensure_indexes()
         InventoryRepository.ensure_indexes()
         StoreRepository.ensure_indexes()
-        AttendanceRepository.ensure_indexes()
+        VisitRepository.ensure_indexes()
         OrderRepository.ensure_indexes()
         logger.info(
             "Indexes ensured: users, sessions, audit_log, categories, "
-            "subcategories, products, inventory, stores, attendance, orders"
+            "subcategories, products, inventory, stores, visits, orders"
         )
 
     def ping(self):

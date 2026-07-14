@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     PRODUCTS_COLL: str = "products"
     INVENTORY_COLL: str = "inventory"
     STORES_COLL: str = "stores"
-    ATTENDANCE_COLL: str = "attendance"
+    VISITS_COLL: str = "visits"
     ORDERS_COLL: str = "orders"
 
     # Attendance geo-fence radius in metres. Sales rep must be within this
