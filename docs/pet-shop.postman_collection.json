@@ -1393,6 +1393,38 @@
               }
             },
             {
+              "name": "Admin/office creates already-approved store for a rep",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                      "pm.test('Status is approved (no separate approval step)', () => pm.expect(pm.response.json().status).to.eql('approved'));",
+                      "pm.test('credit_limit was honoured', () => pm.expect(pm.response.json().credit_limit).to.eql(75000));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Pets Paradise (admin-onboarded)\",\n  \"location\": \"Koramangala, Bengaluru\",\n  \"contact\": {\n    \"name\": \"Meera\",\n    \"phone\": \"+91-99450-77777\"\n  },\n  \"geo\": { \"lat\": 12.9352, \"lng\": 77.6245 },\n  \"gst_number\": \"29XYZAB1234C1Z5\",\n  \"sales_rep_id\": \"{{rep_user_id}}\",\n  \"credit_limit\": 75000\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/stores",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores"]
+                }
+              }
+            },
+            {
               "name": "Reassign store to another rep",
               "request": {
                 "method": "POST",

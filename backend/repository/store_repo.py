@@ -51,7 +51,20 @@ class StoreRepository:
         return items, total
 
     @staticmethod
-    def insert(*, sales_rep_id, sales_rep_name, name, location, contact, geo, email, gst_number, notes):
+    def insert(
+        *,
+        sales_rep_id,
+        sales_rep_name,
+        name,
+        location,
+        contact,
+        geo,
+        email,
+        gst_number,
+        notes,
+        status=StoreStatus.PENDING.value,
+        credit_limit=0.0,
+    ):
         now = now_utc()
         doc = {
             "name": name,
@@ -63,8 +76,8 @@ class StoreRepository:
             "notes": notes,
             "sales_rep_id": sales_rep_id,
             "sales_rep_name": sales_rep_name,
-            "status": StoreStatus.PENDING.value,
-            "credit_limit": 0.0,
+            "status": status,
+            "credit_limit": float(credit_limit or 0.0),
             "credit_used": 0.0,
             "reject_reason": None,
             "created_at": now,

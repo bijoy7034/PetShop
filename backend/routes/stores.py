@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from enums.audit import AuditAction, ResourceType
 from enums.store import StoreStatus
+from enums.user import Role
 from middleware.auth import require_any_user, require_office
 from repository.store_repo import StoreRepository
 from repository.user_repo import UserRepository
@@ -64,15 +65,76 @@ async def create_store(
     request: Request,
     current=Depends(require_any_user),
 ):
+    """Create a store.
+
+    - **sales_rep** callers self-assign and always land in `pending` with
+      credit_limit=0. Payload's `sales_rep_id` / `credit_limit` fields are
+      ignored (they can't reassign or set their own limit).
+    - **admin / office_staff** callers must specify `sales_rep_id`. The
+      store is created as `approved` with the supplied `credit_limit`
+      (default 0) — no separate approval step is needed since the
+      approver is the one creating it.
+    """
     user = current["user"]
-    if user["role"] != "sales_rep":
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Only sales representatives can add stores.",
+    role = user["role"]
+
+    if role == Role.SALES_REP.value:
+        # Sales reps can't set their own credit limit or reassign the store.
+        if payload.sales_rep_id is not None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Sales reps can't set sales_rep_id — you are automatically the assigned rep.",
+            )
+        if payload.credit_limit is not None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Sales reps can't set credit_limit — office/admin sets it on approval.",
+            )
+        store = StoreRepository.insert(
+            sales_rep_id=user["_id"],
+            sales_rep_name=user.get("name"),
+            name=payload.name,
+            location=payload.location,
+            contact=payload.contact.model_dump(),
+            geo=payload.geo.model_dump(),
+            email=payload.email,
+            gst_number=payload.gst_number,
+            notes=payload.notes,
         )
+        record(
+            AuditAction.STORE_CREATE,
+            ResourceType.STORE,
+            resource_id=store["_id"],
+            actor=user,
+            after={"name": store["name"], "location": store["location"]},
+            request=request,
+        )
+        return store
+
+    # admin / office_staff path — must specify the sales rep to assign.
+    if not payload.sales_rep_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "sales_rep_id is required when admin or office_staff creates a store.",
+        )
+    target = UserRepository.by_id(payload.sales_rep_id)
+    if not target:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assigned user not found")
+    if target.get("role") != Role.SALES_REP.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Assigned user must be a sales representative.",
+        )
+    if target.get("status") != "active":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Assigned sales rep account is not active.",
+        )
+
+    credit_limit = float(payload.credit_limit or 0)
     store = StoreRepository.insert(
-        sales_rep_id=user["_id"],
-        sales_rep_name=user.get("name"),
+        sales_rep_id=target["_id"],
+        sales_rep_name=target.get("name"),
         name=payload.name,
         location=payload.location,
         contact=payload.contact.model_dump(),
@@ -80,13 +142,30 @@ async def create_store(
         email=payload.email,
         gst_number=payload.gst_number,
         notes=payload.notes,
+        status=StoreStatus.APPROVED.value,
+        credit_limit=credit_limit,
     )
+    # Two audit rows: created AND approved-in-one-shot, so the audit trail
+    # explains the store landing as approved without an approval step.
     record(
         AuditAction.STORE_CREATE,
         ResourceType.STORE,
         resource_id=store["_id"],
         actor=user,
-        after={"name": store["name"], "location": store["location"]},
+        after={
+            "name": store["name"],
+            "location": store["location"],
+            "sales_rep_id": store["sales_rep_id"],
+        },
+        request=request,
+    )
+    record(
+        AuditAction.STORE_APPROVE,
+        ResourceType.STORE,
+        resource_id=store["_id"],
+        actor=user,
+        before={"status": "pending", "credit_limit": 0.0},
+        after={"status": store["status"], "credit_limit": store["credit_limit"]},
         request=request,
     )
     return store

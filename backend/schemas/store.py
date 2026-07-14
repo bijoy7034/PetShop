@@ -24,6 +24,11 @@ class StoreCreate(BaseModel):
     email: EmailStr | None = None
     gst_number: str | None = Field(default=None, max_length=32)
     notes: str | None = Field(default=None, max_length=2000)
+    # Only honoured when the caller is admin/office_staff (they can create
+    # already-approved stores on behalf of a sales rep). Sales-rep callers
+    # self-assign and these fields are ignored.
+    sales_rep_id: str | None = None
+    credit_limit: float | None = Field(default=None, ge=0)
 
 
 class StoreUpdate(BaseModel):
