@@ -8,6 +8,7 @@ from repository.order_repo import OrderRepository
 from repository.store_repo import StoreRepository
 from schemas.order import (
     Order,
+    OrderAccept,
     OrderCancel,
     OrderCreate,
     OrderListResponse,
@@ -15,9 +16,12 @@ from schemas.order import (
 )
 from services.audit_service import record
 from services.order_service import (
+    apply_reservation_delta,
     commit_inventory_for,
+    line_deltas,
     price_order_lines,
     release_inventory_for,
+    reprice_lines,
     reserve_inventory_for,
 )
 
@@ -274,9 +278,122 @@ async def record_payment(
     return after
 
 
-router.post("/{order_id}/accept", response_model=Order)(
-    _transition_route(OrderStatus.ACCEPTED.value, AuditAction.ORDER_ACCEPT)
-)
+@router.post("/{order_id}/accept", response_model=Order)
+async def accept_order(
+    order_id: str,
+    request: Request,
+    payload: OrderAccept | None = None,
+    current=Depends(require_office),
+):
+    """Accept a placed order and commit inventory.
+
+    Body is optional. If `lines` is supplied, the order is repriced, the
+    credit line is re-checked, inventory reservations are swapped (delta),
+    and the order document is updated with the new lines and total —
+    then the accept proceeds to commit the (edited) reservations into
+    real stock consumption.
+    """
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order["status"] != OrderStatus.PLACED.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot accept an order in '{order['status']}' status.",
+        )
+
+    edited = payload is not None and payload.lines
+    if edited:
+        # 1. Reprice new lines (no stock check here — the reservation
+        # delta below does its own atomic check).
+        new_lines, new_total, err = reprice_lines(payload.lines)
+        if err:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+
+        # 2. Credit check — the new total must fit in the credit line
+        # accounting for the current order's already-held credit.
+        store = StoreRepository.by_id(order["store_id"])
+        if not store:
+            raise HTTPException(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "Store attached to order no longer exists.",
+            )
+        old_total = float(order.get("total") or 0)
+        current_used = float(store.get("credit_used") or 0)
+        # Available room = limit - (credit currently used by everyone
+        # OTHER than this order). Add old_total back because we're
+        # about to release it.
+        headroom = float(store.get("credit_limit", 0)) - (current_used - old_total)
+        if new_total > headroom + 1e-6:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Edited order total {new_total:.2f} exceeds available credit "
+                f"{headroom:.2f} for this store.",
+            )
+
+        # 3. Apply the reservation delta. Positive reserves are attempted
+        # first with rollback on failure — inventory is unchanged if we
+        # fail here.
+        deltas = line_deltas(order["lines"], new_lines)
+        if deltas:
+            err = apply_reservation_delta(deltas)
+            if err:
+                raise HTTPException(status.HTTP_409_CONFLICT, err)
+
+        # 4. Adjust the store's credit_used by (new - old).
+        credit_delta = new_total - old_total
+        if credit_delta != 0:
+            StoreRepository.adjust_credit_used(store["_id"], credit_delta)
+
+        # 5. Persist the edit on the order document.
+        old_lines_snapshot = list(order["lines"])
+        note = payload.note or "Lines edited by office at acceptance."
+        order = OrderRepository.update_lines(
+            order_id, new_lines, new_total, current["user"], note=note
+        )
+        record(
+            AuditAction.ORDER_LINES_EDIT,
+            ResourceType.ORDER,
+            resource_id=order_id,
+            actor=current["user"],
+            before={
+                "lines": [_line_brief(l) for l in old_lines_snapshot],
+                "total": old_total,
+            },
+            after={
+                "lines": [_line_brief(l) for l in new_lines],
+                "total": new_total,
+            },
+            request=request,
+        )
+
+    # 6. Commit inventory: turn reservations into consumptions.
+    err = commit_inventory_for(order["lines"])
+    if err:
+        raise HTTPException(status.HTTP_409_CONFLICT, err)
+
+    after = OrderRepository.set_status(order_id, OrderStatus.ACCEPTED.value, current["user"])
+    record(
+        AuditAction.ORDER_ACCEPT,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={"status": OrderStatus.ACCEPTED.value, "edited": bool(edited)},
+        request=request,
+    )
+    return after
+
+
+def _line_brief(line):
+    return {
+        "product_id": line.get("product_id"),
+        "variant_id": line.get("variant_id"),
+        "qty": line.get("qty"),
+        "unit_price": line.get("unit_price"),
+    }
+
+
 router.post("/{order_id}/pack", response_model=Order)(
     _transition_route(OrderStatus.PACKING.value, AuditAction.ORDER_PACK)
 )

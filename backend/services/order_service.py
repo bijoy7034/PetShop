@@ -70,6 +70,80 @@ def release_inventory_for(lines):
         InventoryRepository.release(line["variant_id"], line["qty"])
 
 
+def reprice_lines(line_payloads):
+    """Look up each (product, variant) and reprice — but SKIP the stock
+    availability check. Used by the accept-with-edit flow, where the
+    reservation delta will do its own atomic check against the inventory.
+    Returns (lines, total, error)."""
+    lines = []
+    total = 0.0
+    for i, lp in enumerate(line_payloads, start=1):
+        info = ProductRepository.get_variant(lp.product_id, lp.variant_id)
+        if not info:
+            return [], 0.0, f"Line {i}: product or variant not found."
+        unit = info.get("discount_price") if info.get("discount_price") is not None else info["price"]
+        line_total = round(float(unit) * lp.qty, 2)
+        total += line_total
+        lines.append(
+            {
+                "product_id": info["product_id"],
+                "product_name": info["product_name"],
+                "variant_id": info["variant_id"],
+                "variant_label": info.get("variant_label"),
+                "qty": lp.qty,
+                "unit_price": float(unit),
+                "line_total": line_total,
+            }
+        )
+    return lines, round(total, 2), None
+
+
+def _sum_by_variant(lines):
+    out = {}
+    for l in lines:
+        vid = l["variant_id"]
+        out[vid] = out.get(vid, 0) + int(l["qty"])
+    return out
+
+
+def line_deltas(old_lines, new_lines):
+    """Per-variant net reservation delta. Positive means 'reserve more',
+    negative means 'release'. Zero variants are dropped."""
+    old_by = _sum_by_variant(old_lines)
+    new_by = _sum_by_variant(new_lines)
+    variants = set(old_by) | set(new_by)
+    return {v: new_by.get(v, 0) - old_by.get(v, 0) for v in variants
+            if new_by.get(v, 0) - old_by.get(v, 0) != 0}
+
+
+def apply_reservation_delta(deltas):
+    """Apply a per-variant reservation delta atomically-ish. Positive
+    reserves are attempted FIRST — if any fails, everything already
+    reserved by this call is rolled back and an error message is returned.
+    Negative deltas (releases) are applied AFTER positives succeed so we
+    never let go of units we can't get back.
+
+    Returns None on success, human-readable error on failure. On error,
+    inventory state is unchanged from before this call."""
+    positive = [(v, d) for v, d in deltas.items() if d > 0]
+    negative = [(v, d) for v, d in deltas.items() if d < 0]
+    reserved = []
+    for variant_id, delta in positive:
+        ok = InventoryRepository.reserve(variant_id, delta)
+        if ok is None:
+            # Rollback whatever we already reserved on this call.
+            for v2, d2 in reserved:
+                InventoryRepository.release(v2, d2)
+            return (
+                f"Cannot reserve {delta} more units of variant {variant_id} "
+                f"— insufficient available stock."
+            )
+        reserved.append((variant_id, delta))
+    for variant_id, delta in negative:
+        InventoryRepository.release(variant_id, -delta)
+    return None
+
+
 def commit_inventory_for(lines):
     """Order accepted — commit each reservation into a real consumption.
     Rolls back the ones already committed on partial failure."""

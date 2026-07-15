@@ -787,11 +787,21 @@
               { "key": "Content-Type", "value": "application/json" },
               { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{base_url}}/api/orders/{{order_id}}/accept",
               "host": ["{{base_url}}"],
               "path": ["api", "orders", "{{order_id}}", "accept"]
-            }
+            },
+            "description": "Empty body accepts as-is. To edit at acceptance, send:\n{\n  \"lines\": [\n    { \"product_id\": \"...\", \"variant_id\": \"...\", \"qty\": 4 }\n  ],\n  \"note\": \"Cut back qty; only 4 available at supplier\"\n}"
           }
         },
         {
@@ -1618,6 +1628,25 @@
                   "raw": "{{base_url}}/api/orders/{{order_id}}/cancel",
                   "host": ["{{base_url}}"],
                   "path": ["api", "orders", "{{order_id}}", "cancel"]
+                }
+              }
+            },
+            {
+              "name": "Accept order WITH edit (adjust qty / swap lines at approval)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"lines\": [\n    { \"product_id\": \"{{product_id}}\", \"variant_id\": \"{{variant_id}}\", \"qty\": 3 }\n  ],\n  \"note\": \"Reduced qty of 3kg based on stock at hand\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/accept",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "accept"]
                 }
               }
             },

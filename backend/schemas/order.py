@@ -28,7 +28,10 @@ class OrderCreate(BaseModel):
 
 
 class OrderStatusEvent(BaseModel):
-    status: OrderStatus
+    # Values include every OrderStatus PLUS 'edited' for lines-edit events.
+    # History is an event log, not just a status timeline — a plain str
+    # keeps it open for future event kinds without touching this schema.
+    status: str
     at: datetime
     by_user_id: str | None = None
     by_user_name: str | None = None
@@ -77,6 +80,15 @@ class Order(BaseModel):
 
 class OrderCancel(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+class OrderAccept(BaseModel):
+    """Body for POST /orders/{id}/accept. All fields are optional — an
+    empty body accepts the order as-is. If `lines` is present, the order
+    is repriced and reservations are swapped before the accept commits
+    inventory."""
+    lines: list[OrderLineCreate] | None = None
+    note: str | None = Field(default=None, max_length=500)
 
 
 class OrderListResponse(BaseModel):

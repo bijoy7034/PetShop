@@ -168,6 +168,38 @@ class OrderRepository:
         return OrderRepository.by_id(order_id)  # noqa: uses _with_outstanding
 
     @staticmethod
+    def update_lines(order_id, new_lines, new_total, actor, note=None):
+        """Replace lines/total and append a history event tagged 'edited'.
+        Caller is responsible for swapping the inventory reservations and
+        adjusting store.credit_used first."""
+        oid = oid_or_none(order_id)
+        if oid is None:
+            return None
+        now = now_utc()
+        # Not a status change — reuse the history[] shape but with a
+        # descriptive status label so the office UI can render the
+        # timeline as "Order edited by <actor>".
+        event = {
+            "status": "edited",
+            "at": now,
+            "by_user_id": (actor or {}).get("_id"),
+            "by_user_name": (actor or {}).get("name"),
+            "note": note,
+        }
+        OrderRepository._coll().update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "lines": new_lines,
+                    "total": float(new_total),
+                    "updated_at": now,
+                },
+                "$push": {"history": event},
+            },
+        )
+        return OrderRepository.by_id(order_id)
+
+    @staticmethod
     def cancel(order_id, reason, actor):
         oid = oid_or_none(order_id)
         if oid is None:
