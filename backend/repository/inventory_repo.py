@@ -63,20 +63,37 @@ class InventoryRepository:
         quantity_on_hand=0,
         reorder_level=0,
     ):
-        """Idempotent — if an inventory doc for this variant already exists,
-        returns it untouched. Called from every variant-create path."""
         existing = InventoryRepository.by_variant_id(variant_id)
         if existing:
             return existing
         now = now_utc()
+        opening = int(quantity_on_hand or 0)
         doc = {
             "product_id": product_id,
             "variant_id": variant_id,
             "variant_label": variant_label,
             "product_name": product_name,
-            "quantity_on_hand": int(quantity_on_hand or 0),
+            "quantity_on_hand": opening,
             "reserved_quantity": 0,
             "reorder_level": int(reorder_level or 0),
+            "stock_history": (
+                [
+                    {
+                        "previous_stock": 0,
+                        "new_stock": opening,
+                        "delta": opening,
+                        "reason": "Opening balance at variant create",
+                        "changed_by_id": None,
+                        "changed_by_name": None,
+                        "changed_at": now,
+                    }
+                ]
+                if opening > 0
+                else []
+            ),
+            "last_stock_updated_at": now if opening > 0 else None,
+            "last_stock_updated_by_id": None,
+            "last_stock_updated_by_name": None,
             "updated_at": now,
             "created_at": now,
         }
@@ -118,25 +135,50 @@ class InventoryRepository:
         return InventoryRepository.by_id(inv_id)
 
     @staticmethod
-    def adjust_on_hand(variant_id, delta):
+    def adjust_on_hand(variant_id, delta, *, reason=None, actor=None):
         """Atomic bump of quantity_on_hand. Refuses to drop below the current
         reserved quantity (that would strand orders that already reserved
-        against these units). Returns the fresh doc or None on refuse."""
-        q = {"variant_id": variant_id}
-        if delta < 0:
-            # on_hand + delta must still cover reserved units.
-            q["$expr"] = {
-                "$gte": [
-                    {"$add": ["$quantity_on_hand", delta]},
-                    "$reserved_quantity",
-                ]
+        against these units).
+
+        When a `reason` is supplied we also append a stock_history event
+        and stamp last_stock_updated_at/by, giving a complete audit trail
+        of on-hand changes. Callers that don't pass a reason (internal
+        wiring like create-with-opening-balance) skip the log."""
+        current = InventoryRepository._coll().find_one(
+            {"variant_id": variant_id},
+            {"quantity_on_hand": 1, "reserved_quantity": 1},
+        )
+        if not current:
+            return None
+        prev = int(current.get("quantity_on_hand") or 0)
+        new_stock = prev + int(delta)
+        # Must still cover the reserved.
+        if new_stock < int(current.get("reserved_quantity") or 0):
+            return None
+        now = now_utc()
+        set_doc = {"quantity_on_hand": new_stock, "updated_at": now}
+        push_doc = None
+        if reason is not None:
+            event = {
+                "previous_stock": prev,
+                "new_stock": new_stock,
+                "delta": int(delta),
+                "reason": reason,
+                "changed_by_id": (actor or {}).get("_id"),
+                "changed_by_name": (actor or {}).get("name"),
+                "changed_at": now,
             }
+            push_doc = {"stock_history": event}
+            set_doc["last_stock_updated_at"] = now
+            set_doc["last_stock_updated_by_id"] = (actor or {}).get("_id")
+            set_doc["last_stock_updated_by_name"] = (actor or {}).get("name")
+        update = {"$set": set_doc}
+        if push_doc:
+            update["$push"] = push_doc
+        # Guard against a race between our read and write.
         res = InventoryRepository._coll().update_one(
-            q,
-            {
-                "$inc": {"quantity_on_hand": int(delta)},
-                "$set": {"updated_at": now_utc()},
-            },
+            {"variant_id": variant_id, "quantity_on_hand": prev},
+            update,
         )
         if res.matched_count == 0:
             return None
@@ -187,22 +229,52 @@ class InventoryRepository:
         return InventoryRepository.by_variant_id(variant_id)
 
     @staticmethod
-    def commit(variant_id, qty):
+    def commit(variant_id, qty, *, order_code=None, actor=None):
         """Order accepted — turn a reservation into a real consumption:
-        decrement BOTH reserved_quantity and quantity_on_hand by qty. Refuses
-        if either would go below zero."""
+        decrement BOTH reserved_quantity and quantity_on_hand by qty.
+        Logs a stock_history event tagged with the order that consumed
+        the stock."""
         qty = int(qty)
         if qty <= 0:
             return None
+        current = InventoryRepository._coll().find_one(
+            {"variant_id": variant_id},
+            {"quantity_on_hand": 1, "reserved_quantity": 1},
+        )
+        if not current:
+            return None
+        prev = int(current.get("quantity_on_hand") or 0)
+        prev_reserved = int(current.get("reserved_quantity") or 0)
+        if prev < qty or prev_reserved < qty:
+            return None
+        now = now_utc()
+        reason = (
+            f"Order committed: {order_code}" if order_code else "Order committed"
+        )
+        event = {
+            "previous_stock": prev,
+            "new_stock": prev - qty,
+            "delta": -qty,
+            "reason": reason,
+            "changed_by_id": (actor or {}).get("_id"),
+            "changed_by_name": (actor or {}).get("name"),
+            "changed_at": now,
+        }
         res = InventoryRepository._coll().update_one(
             {
                 "variant_id": variant_id,
+                "quantity_on_hand": prev,
                 "reserved_quantity": {"$gte": qty},
-                "quantity_on_hand": {"$gte": qty},
             },
             {
                 "$inc": {"reserved_quantity": -qty, "quantity_on_hand": -qty},
-                "$set": {"updated_at": now_utc()},
+                "$set": {
+                    "updated_at": now,
+                    "last_stock_updated_at": now,
+                    "last_stock_updated_by_id": (actor or {}).get("_id"),
+                    "last_stock_updated_by_name": (actor or {}).get("name"),
+                },
+                "$push": {"stock_history": event},
             },
         )
         if res.matched_count == 0:

@@ -707,7 +707,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"order_id\": \"{{order_id}}\",\n  \"remarks\": \"Weekly visit; owner happy with the range\"\n}"
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"in_store\",\n  \"outcome\": \"order_placed\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"check_in\":  \"2026-07-19T10:00:00Z\",\n  \"check_out\": \"2026-07-19T10:30:00Z\",\n  \"order_id\": \"{{order_id}}\",\n  \"remarks\": \"Weekly visit; owner happy with the range\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/visits",
@@ -717,15 +717,15 @@
           }
         },
         {
-          "name": "22. Duplicate visit for the same day should be rejected",
+          "name": "22. Second visit same day (remote, no order) is now allowed",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
-                  "pm.test('Message mentions today', () => pm.expect(pm.response.json().detail).to.include('today'));"
+                  "pm.test('201 Created — multi-visits/day permitted', () => pm.response.to.have.status(201));",
+                  "pm.test('Mode is remote', () => pm.expect(pm.response.json().mode).to.eql('remote'));"
                 ]
               }
             }
@@ -738,7 +738,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"no_order_reason\": \"Second visit today\"\n}"
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"remote\",\n  \"outcome\": \"no_order\",\n  \"no_order_reason\": \"Follow-up call in the evening; owner will order next week\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/visits",
@@ -1274,6 +1274,49 @@
               }
             },
             {
+              "name": "Toggle product active",
+              "request": {
+                "method": "PATCH",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/toggle-active",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "toggle-active"]
+                }
+              }
+            },
+            {
+              "name": "Toggle variant active",
+              "request": {
+                "method": "PATCH",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}/toggle-active",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}", "toggle-active"]
+                }
+              }
+            },
+            {
+              "name": "PATCH variant with reason (records to price_history if price changes)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"price\": 375, \"discount_price\": 340, \"reason\": \"Seasonal bump for peak\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}"]
+                }
+              }
+            },
+            {
               "name": "Delete product",
               "request": {
                 "method": "DELETE",
@@ -1498,6 +1541,56 @@
                   "path": ["api", "stores", "{{store_id}}"]
                 }
               }
+            },
+            {
+              "name": "Propose credit-limit change (office)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"credit_limit\": 250000, \"reason\": \"Store hit ₹5L monthly revenue\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/credit-limit",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "credit-limit"]
+                }
+              }
+            },
+            {
+              "name": "Admin approves credit-limit change",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/credit-limit/approve",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "credit-limit", "approve"]
+                }
+              }
+            },
+            {
+              "name": "Admin rejects credit-limit change",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"reason\": \"Outstanding balance too high\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/credit-limit/reject",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "credit-limit", "reject"]
+                }
+              }
             }
           ]
         },
@@ -1505,7 +1598,7 @@
           "name": "Visits",
           "item": [
             {
-              "name": "List visits",
+              "name": "List visits (with mode/outcome/district filters)",
               "request": {
                 "method": "GET",
                 "header": [],
@@ -1518,13 +1611,16 @@
                     { "key": "page_size", "value": "50" },
                     { "key": "store_id", "value": "{{store_id}}", "disabled": true },
                     { "key": "user_id", "value": "{{rep_user_id}}", "disabled": true },
-                    { "key": "visit_date", "value": "2026-07-14", "disabled": true }
+                    { "key": "visit_date", "value": "2026-07-19", "disabled": true },
+                    { "key": "mode", "value": "in_store", "disabled": true },
+                    { "key": "outcome", "value": "order_placed", "disabled": true },
+                    { "key": "district", "value": "Bengaluru South", "disabled": true }
                   ]
                 }
               }
             },
             {
-              "name": "Mark visit — no-order path",
+              "name": "In-store visit — no order (with check_in/check_out for duration)",
               "request": {
                 "method": "POST",
                 "header": [
@@ -1533,7 +1629,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"no_order_reason\": \"Store closed for stock-taking; will revisit tomorrow\",\n  \"remarks\": \"Left samples\"\n}"
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"in_store\",\n  \"outcome\": \"no_order\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"check_in\":  \"2026-07-19T10:00:00Z\",\n  \"check_out\": \"2026-07-19T10:30:00Z\",\n  \"no_order_reason\": \"Store closed for stock-taking; will revisit tomorrow\",\n  \"remarks\": \"Left samples\"\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/visits",
@@ -1543,7 +1639,7 @@
               }
             },
             {
-              "name": "Mark visit FAILS outside 100m",
+              "name": "Remote visit — order placed (no GPS required)",
               "request": {
                 "method": "POST",
                 "header": [
@@ -1552,7 +1648,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": 12.9800,\n  \"lng\": 77.6000,\n  \"no_order_reason\": \"Wrong location test\"\n}"
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"remote\",\n  \"outcome\": \"order_placed\",\n  \"order_id\": \"{{order_id}}\",\n  \"remarks\": \"WhatsApp order at 8pm\"\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/visits",
@@ -1562,7 +1658,7 @@
               }
             },
             {
-              "name": "Mark visit FAILS with neither order_id nor no_order_reason (422)",
+              "name": "In-store visit FAILS outside 100m",
               "request": {
                 "method": "POST",
                 "header": [
@@ -1571,7 +1667,26 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lat\": {{store_lat}},\n  \"lng\": {{store_lng}},\n  \"remarks\": \"Missing both\"\n}"
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"in_store\",\n  \"outcome\": \"no_order\",\n  \"lat\": 12.9800,\n  \"lng\": 77.6000,\n  \"no_order_reason\": \"Wrong location test\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/visits",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "visits"]
+                }
+              }
+            },
+            {
+              "name": "In-store visit FAILS without GPS (422)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"mode\": \"in_store\",\n  \"outcome\": \"no_order\",\n  \"no_order_reason\": \"Missing GPS\"\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/visits",
@@ -1689,7 +1804,57 @@
               }
             },
             {
-              "name": "Order over credit limit (should fail 400)",
+              "name": "Admin approves a pending_admin_approval order",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/admin-approve",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "admin-approve"]
+                }
+              }
+            },
+            {
+              "name": "Admin rejects a pending_admin_approval order",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"reason\": \"Outstanding balance too high; store must pay down first\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/admin-reject",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "admin-reject"]
+                }
+              }
+            },
+            {
+              "name": "Delay an active order (office/admin)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"reason\": \"Awaiting stock top-up from warehouse\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{order_id}}/delay",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{order_id}}", "delay"]
+                }
+              }
+            },
+            {
+              "name": "Over-credit order (now lands as pending_admin_approval, not rejected)",
               "request": {
                 "method": "POST",
                 "header": [

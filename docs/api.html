@@ -172,7 +172,7 @@
     <li><a href="#products">Products</a></li>
     <li><a href="#inventory">Inventory</a></li>
     <li><a href="#stores">Stores</a></li>
-    <li><a href="#attendance">Attendance</a></li>
+    <li><a href="#visits">Visits</a></li>
     <li><a href="#orders">Orders</a></li>
   </ul>
 
@@ -186,7 +186,21 @@
 <main>
 
 <h1 id="overview" style="margin-top:8px">Pet Shop Wholesale Inventory API</h1>
-<p class="muted">FastAPI + MongoDB backend. 31 endpoints across 8 domains. All state-changing endpoints require an auth cookie + CSRF header.</p>
+<p class="muted">FastAPI + MongoDB backend. All state-changing endpoints require an auth cookie + CSRF header.</p>
+
+<div class="callout">
+  <strong>Recent changes (2026-07 batch).</strong>
+  <ul>
+    <li><code>Product</code> and <code>Variant</code> both gained <code>is_active</code>. Toggle via dedicated <code>PATCH .../toggle-active</code> endpoints — regular PATCH doesn't touch it. Order placement rejects inactive items.</li>
+    <li><code>Variant</code> keeps a <code>price_history[]</code>. PATCH pushes the previous <code>(price, discount_price)</code> when either changes, with the optional <code>reason</code>.</li>
+    <li><code>OrderLine.placed_qty</code> → <code>qty_ordered</code>. <code>accepted_qty</code> → <code>qty_accepted</code>. Line also stores <code>discount_price</code> so historical pricing survives future variant changes.</li>
+    <li>New order statuses: <code>pending_admin_approval</code> and <code>delayed</code>. Over-credit orders no longer reject — they land in <code>pending_admin_approval</code> with inventory reserved but credit NOT held. Admin approves or rejects.</li>
+    <li>Order snapshots at placement: <code>store_district</code>, <code>delivery_address_snapshot</code>, credit terms (<code>credit_period_days</code>), cancellation policy (<code>is_free_cancellation</code>, <code>cancellation_charges</code>), <code>return_window_days</code>. Historical orders survive future store edits.</li>
+    <li>Store credit-limit changes now require admin approval: propose via <code>PATCH .../credit-limit</code>, admin approves or rejects.</li>
+    <li>Attendance → Visits. Multiple visits/day per store now allowed. New fields: <code>mode</code> (in_store/remote), <code>outcome</code>, <code>order_value</code>, <code>duration_minutes</code>.</li>
+    <li>Inventory keeps <code>stock_history[]</code> with previous/new/delta/reason/actor/timestamp on every on-hand change.</li>
+  </ul>
+</div>
 
 <h2>Stack &amp; base URL</h2>
 <table>
@@ -713,18 +727,36 @@ POST /api/orders/{order_id}/deliver</code></pre>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method POST">POST</span> /api/stores <span class="role">sales_rep</span></h4>
-  <p class="label">Body</p>
+  <h4><span class="method POST">POST</span> /api/stores <span class="role">sales_rep, admin, office</span></h4>
+  <p><strong>Sales rep</strong> creates → store lands <code>status: pending</code>, <code>credit_limit: 0</code>, self-assigned. Sales reps cannot include <code>sales_rep_id</code> or <code>credit_limit</code> in the payload (400 if they try).</p>
+  <p><strong>Admin / office_staff</strong> can create pre-approved stores on behalf of a rep. They must supply <code>sales_rep_id</code>. Optional: <code>credit_limit</code>, <code>credit_period_days</code>, <code>is_free_cancellation</code>, <code>cancellation_charges</code>, <code>return_window_days</code>.</p>
+  <p class="label">Body (sales_rep)</p>
   <pre><code>{
   "name": "Happy Pets Corner",
   "location": "MG Road, Bengaluru",
+  "district": "Bengaluru South",
   "contact": { "name": "Rohit Menon", "phone": "+91-99450-33333", "email": "rohit@happypets.example" },
   "geo": { "lat": 12.9716, "lng": 77.5946 },
   "email": "orders@happypets.example",
   "gst_number": "29ABCDE1234F1Z5",
   "notes": "Prefers deliveries before 11am"
 }</code></pre>
-  <p class="muted">Created in <code>status: pending</code> with <code>credit_limit: 0</code>. Server sets <code>sales_rep_id</code> and <code>sales_rep_name</code> from the caller — sales reps cannot spoof these.</p>
+  <p class="label">Body (admin / office — pre-approved)</p>
+  <pre><code>{
+  "name": "Happy Pets Corner",
+  "location": "MG Road, Bengaluru",
+  "district": "Bengaluru South",
+  "contact": { "name": "Rohit Menon", "phone": "+91-99450-33333" },
+  "geo": { "lat": 12.9716, "lng": 77.5946 },
+  "gst_number": "29ABCDE1234F1Z5",
+  "sales_rep_id": "{rep_user_id}",
+  "credit_limit": 100000,
+  "credit_period_days": 30,
+  "is_free_cancellation": true,
+  "cancellation_charges": 0,
+  "return_window_days": 7
+}</code></pre>
+  <p class="muted">The commercial-terms fields on the store (<code>credit_period_days</code>, <code>is_free_cancellation</code>, <code>cancellation_charges</code>, <code>return_window_days</code>) are snapshotted onto every order at placement so future edits here never rewrite historical orders.</p>
 </div>
 
 <div class="endpoint">
@@ -751,35 +783,87 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/stores/{store_id}/assign <span class="role">office</span></h4>
-  <p>Reassign a store to a different sales rep. Target must be an active user with role <code>sales_rep</code>. Orders and attendance already on the store keep their original <code>sales_rep_id</code> (historical). Future orders and attendance are scoped to the new assignee.</p>
+  <p>Reassign a store to a different sales rep. Target must be an active user with role <code>sales_rep</code>. Orders and visits already on the store keep their original <code>sales_rep_id</code> (historical). Future orders and visits are scoped to the new assignee.</p>
   <p class="label">Body</p>
   <pre><code>{ "sales_rep_id": "{new_rep_id}" }</code></pre>
 </div>
 
-<!-- ========== ATTENDANCE ========== -->
-<h2 id="attendance">Attendance</h2>
+<h3>Credit-limit change workflow</h3>
+<p class="muted">Any change to a store's <code>credit_limit</code> after initial approval requires admin approval. Office proposes → admin approves or rejects. Store carries <code>pending_credit_limit</code> and <code>credit_change_status</code> (<code>none</code> / <code>pending</code> / <code>approved</code> / <code>rejected</code>).</p>
 
 <div class="endpoint">
-  <h4><span class="method POST">POST</span> /api/attendance <span class="role">sales_rep</span></h4>
-  <p>Mark a visit. Server verifies the rep owns the store, the store is approved, and the caller is within <strong>100 m</strong> of the store's saved geo.</p>
+  <h4><span class="method PATCH">PATCH</span> /api/stores/{store_id}/credit-limit <span class="role">office</span></h4>
+  <p>Propose a new credit-limit. Parks the value in <code>pending_credit_limit</code> with <code>credit_change_status: "pending"</code>. Overwrites any prior pending proposal.</p>
   <p class="label">Body</p>
+  <pre><code>{ "credit_limit": 250000, "reason": "Store hit ₹5L monthly revenue" }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores/{store_id}/credit-limit/approve <span class="role">admin</span></h4>
+  <p>Applies the pending value as the new <code>credit_limit</code>, clears <code>pending_credit_limit</code>, sets <code>credit_change_status: "approved"</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/stores/{store_id}/credit-limit/reject <span class="role">admin</span></h4>
+  <p>Clears <code>pending_credit_limit</code>, sets <code>credit_change_status: "rejected"</code>. <code>credit_limit</code> unchanged.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "reason": "Store's outstanding balance is too high" }</code></pre>
+</div>
+
+<h2 id="visits">Visits</h2>
+<p class="muted">Field-visit log (replaces the earlier <code>/api/attendance</code>). Multiple visits per store per day are now allowed. Every visit is one of two modes:</p>
+<ul>
+  <li><strong>in_store</strong> — GPS mandatory, 100 m geo-fence enforced, optional <code>check_in</code>/<code>check_out</code> for duration tracking.</li>
+  <li><strong>remote</strong> — GPS not required, distance check skipped. For phone/WhatsApp orders and other remote interactions.</li>
+</ul>
+<p class="muted">Every visit has an <code>outcome</code>: <code>order_placed</code> (requires <code>order_id</code>) or <code>no_order</code> (requires <code>no_order_reason</code>). A snapshot of the store's location is stored on every visit for district-wise analytics.</p>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/visits <span class="role">sales_rep</span></h4>
+  <p class="label">Body — in-store, no order</p>
   <pre><code>{
   "store_id": "{store_id}",
-  "lat": 12.9717,
-  "lng": 77.5947,
-  "notes": "Weekly visit"
+  "mode": "in_store",
+  "outcome": "no_order",
+  "lat": 12.9716,
+  "lng": 77.5946,
+  "check_in":  "2026-07-19T10:00:00Z",
+  "check_out": "2026-07-19T10:30:00Z",
+  "no_order_reason": "Store closed for stock-taking",
+  "remarks": "Left samples"
+}</code></pre>
+  <p class="label">Body — remote, with order</p>
+  <pre><code>{
+  "store_id": "{store_id}",
+  "mode": "remote",
+  "outcome": "order_placed",
+  "order_id": "{order_id}",
+  "remarks": "WhatsApp order at 8pm"
+}</code></pre>
+  <p class="label">Response 201 (excerpt)</p>
+  <pre><code>{
+  "mode": "in_store",
+  "outcome": "no_order",
+  "distance_meters": 12.4,
+  "duration_minutes": 30,
+  "order_value": null,
+  "location_snapshot": {
+    "location": "MG Road, Bengaluru",
+    "district": "Bengaluru South",
+    "geo_lat": 12.9716, "geo_lng": 77.5946
+  }
 }</code></pre>
   <p class="label">Errors</p>
   <ul>
-    <li><code>404</code> — store not found or not owned by caller</li>
-    <li><code>400</code> — store not approved</li>
-    <li><code>400</code> — outside 100 m (message includes actual distance)</li>
+    <li><code>404</code> — store not found or not assigned to caller</li>
+    <li><code>400</code> — store not approved / outside 100 m (in_store only)</li>
+    <li><code>422</code> — payload/mode mismatch (in_store without GPS, order_placed without order_id, etc.)</li>
   </ul>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method GET">GET</span> /api/attendance <span class="role">any user</span></h4>
-  <p>Sales rep sees only their own records (the <code>user_id</code> query param is ignored for them). Office/admin can filter freely. Query: <code>store_id</code>, <code>user_id</code>, <code>page</code>, <code>page_size</code>.</p>
+  <h4><span class="method GET">GET</span> /api/visits <span class="role">any user</span></h4>
+  <p>Sales rep sees only their own records. Office/admin can filter freely. Query: <code>store_id</code>, <code>user_id</code>, <code>visit_date</code> (YYYY-MM-DD), <code>mode</code>, <code>outcome</code>, <code>district</code>, <code>page</code>, <code>page_size</code>.</p>
 </div>
 
 <!-- ========== ORDERS ========== -->
@@ -797,49 +881,95 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders <span class="role">sales_rep</span></h4>
-  <p>Place an order. Two-phase safety: server reserves inventory on every line, then holds credit, then persists the order. If reservation fails for any line, everything already reserved is released; if credit fails, reservations are released. Enforces <code>credit_used + total ≤ credit_limit</code>.</p>
+  <p>Place an order. Server reserves inventory on every line first, then (if credit fits) holds the credit and persists the order as <code>placed</code>. If the total exceeds available credit, the order is <strong>still created</strong> as <code>pending_admin_approval</code> — inventory is reserved but credit is NOT held. Admin approves or rejects it.</p>
+  <p>At creation, the order snapshots the store's <code>district</code>, delivery address (contact + geo + gst), and commercial terms (<code>credit_period_days</code>, cancellation policy, return window). Future store edits don't rewrite existing orders.</p>
   <p class="label">Body</p>
   <pre><code>{
   "store_id": "{store_id}",
   "notes": "Monthly restock",
+  "expected_delivery_date": "2026-07-25T00:00:00Z",
   "lines": [
     { "product_id": "{pedigree_id}", "variant_id": "{ped_3k_id}",   "qty": 5 },
     { "product_id": "{whiskas_id}",  "variant_id": "{wsk_1200_id}", "qty": 8 }
   ]
 }</code></pre>
-  <p class="label">Response 201 (excerpt)</p>
+  <p class="label">Response 201 (excerpt) — order line uses <code>qty_ordered</code>/<code>qty_accepted</code>/<code>discount_price</code></p>
   <pre><code>{
   "_id": "6a12…",
-  "store_id": "…",
-  "owner_id": "…",
+  "code": "ORD-0042",
   "status": "placed",
-  "total": 9710.00,
+  "store_id": "…", "store_code": "STR-0007", "store_district": "Bengaluru South",
+  "sales_rep_id": "…", "sales_rep_name": "Arjun",
+  "delivery_address_snapshot": {
+    "name": "Happy Pets Corner",
+    "location": "MG Road, Bengaluru",
+    "district": "Bengaluru South",
+    "geo_lat": 12.9716, "geo_lng": 77.5946,
+    "contact_name": "Rohit", "contact_phone": "+91-99450-33333"
+  },
   "lines": [
-    { "product_id": "…", "product_name": "Pedigree…", "variant_id": "…",
-      "variant_label": "3kg / SKU PED-CHK-3K", "qty": 5, "unit_price": 950, "line_total": 4750 },
-    { "product_id": "…", "product_name": "Whiskas Ocean Fish", "variant_id": "…",
-      "variant_label": "1.2kg / SKU WSK-OF-1200", "qty": 8, "unit_price": 620, "line_total": 4960 }
+    { "product_id": "…", "product_code": "PRD-0001", "product_name": "Pedigree…",
+      "variant_id": "…", "variant_code": "PRD-0001-V02", "variant_label": "3kg",
+      "qty_ordered": 5, "qty_accepted": null,
+      "unit_price": 1000, "discount_price": 950, "line_total": 4750 }
   ],
-  "history": [ { "status": "placed", "at": "2026-07-12T…", "by_user_id": "…", "by_user_name": "Arjun" } ],
-  "created_at": "…", "updated_at": "…"
+  "total": 4750.00,
+  "history": [ { "status": "placed", "at": "…", "by_user_name": "Arjun" } ],
+  "expected_delivery_date": "2026-07-25T00:00:00Z",
+  "delivered_at": null,
+  "credit_period_days": 30, "payment_due_date": null,
+  "is_free_cancellation": true, "cancellation_charges": 0, "return_window_days": 7,
+  "last_status_updated_at": "…",
+  "accepted_by_id": null, "accepted_by_name": null
 }</code></pre>
   <p class="label">Errors</p>
   <ul>
-    <li><code>404</code> — store not owned by caller</li>
-    <li><code>400</code> — store not approved / variant not found / insufficient stock / credit exceeded</li>
+    <li><code>404</code> — store not assigned to caller</li>
+    <li><code>400</code> — store not approved / variant not found / inactive product or variant / insufficient stock</li>
+    <li><code>409</code> — inventory changed during reservation (retry)</li>
   </ul>
+  <p class="muted"><strong>Note:</strong> credit exceeded no longer returns 400 — instead the order lands in <code>pending_admin_approval</code>.</p>
 </div>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders/{order_id}/cancel <span class="role">placing sales_rep or office</span></h4>
-  <p>Only allowed while status is <code>placed</code>. Releases both the inventory reservations and the credit hold.</p>
+  <p>Only allowed while status is <code>placed</code>. Releases both the inventory reservations and the credit hold. Records <code>cancel_reason</code>.</p>
   <p class="label">Body</p>
   <pre><code>{ "reason": "Store changed their mind" }</code></pre>
 </div>
 
 <div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/admin-approve <span class="role">admin</span></h4>
+  <p>Approves a <code>pending_admin_approval</code> order. Re-checks credit (another paid order could have consumed room since placement); if it still doesn't fit, returns 409 and admin can either reject or raise the store's credit_limit. On success: credit is held, status becomes <code>placed</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/admin-reject <span class="role">admin</span></h4>
+  <p>Rejects a <code>pending_admin_approval</code> order with a mandatory reason. Releases inventory reservations (credit was never held). Status becomes <code>cancelled</code> with <code>rejection_reason</code> recorded.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "reason": "Store's outstanding balance is too high" }</code></pre>
+</div>
+
+<div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders/{order_id}/accept <span class="role">office</span></h4>
-  <p>Transitions <code>placed → accepted</code> and <strong>commits</strong> every line's reservation into a real consumption (decrements both <code>quantity_on_hand</code> and <code>reserved_quantity</code>). If any line's commit fails mid-way (shouldn't happen because we reserved at placement, but guarded anyway), the already-committed lines are rolled back to the reserved state and this returns 409.</p>
+  <p>Accept a <code>placed</code> (or <code>delayed</code>) order. Optionally takes a body to <strong>reduce quantities</strong> on existing lines — the difference is released to inventory and credit. Sets <code>accepted_by_id</code>/<code>accepted_by_name</code>. Cannot add lines or increase qty above <code>qty_ordered</code>.</p>
+  <p class="label">Body — empty (accept as-is)</p>
+  <pre><code>{}</code></pre>
+  <p class="label">Body — reduce a line's qty</p>
+  <pre><code>{
+  "lines": [
+    { "product_id": "{pedigree_id}", "variant_id": "{ped_3k_id}", "qty": 3 }
+  ],
+  "note": "Only 3 available at supplier"
+}</code></pre>
+  <p class="muted">Lines omitted from the body default to <code>qty_accepted = qty_ordered</code>. Every accepted line records <code>qty_accepted</code>; the order's <code>total</code> reflects the accepted quantities. Inventory is committed at the accepted qty; the surplus (<code>qty_ordered − qty_accepted</code>) is released.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/delay <span class="role">office</span></h4>
+  <p>Mark an active order (placed / accepted / packing / out_for_delivery) as <code>delayed</code> with a mandatory reason. From <code>delayed</code>, the office can resume to any legal next state; <code>delay_reason</code> is cleared once accepted again.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "reason": "Awaiting stock top-up from warehouse" }</code></pre>
 </div>
 
 <div class="endpoint">
@@ -854,7 +984,14 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders/{order_id}/deliver <span class="role">office</span></h4>
-  <p><code>out_for_delivery → delivered</code></p>
+  <p><code>out_for_delivery → delivered</code>. Stamps <code>delivered_at</code> and computes <code>payment_due_date = delivered_at + credit_period_days</code> from the snapshotted term.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/payment <span class="role">office/admin</span></h4>
+  <p>Record a payment. Refuses <code>amount ≤ 0</code> and overpayment. Derives <code>payment_status</code> from the running total (pending / partially_paid / paid). Releases the paid amount from the store's <code>credit_used</code> (accounts receivable).</p>
+  <p class="label">Body</p>
+  <pre><code>{ "amount": 3000, "method": "UPI", "notes": "UPI ref UPI/2026/A1B2" }</code></pre>
 </div>
 
 <!-- ========== REFERENCE ========== -->
@@ -885,10 +1022,36 @@ POST /api/orders/{order_id}/deliver</code></pre>
     </ul>
   </div>
   <div>
+    <h3>CreditChangeStatus</h3>
+    <ul>
+      <li><code>none</code> — no pending proposal</li>
+      <li><code>pending</code> — office proposed, awaits admin</li>
+      <li><code>approved</code> — admin applied the change</li>
+      <li><code>rejected</code> — admin declined; credit_limit unchanged</li>
+    </ul>
+  </div>
+  <div>
     <h3>OrderStatus</h3>
     <ul>
+      <li><code>pending_admin_approval</code> — over-credit; awaits admin</li>
       <li><code>placed</code> → <code>accepted</code> → <code>packing</code> → <code>out_for_delivery</code> → <code>delivered</code></li>
-      <li><code>cancelled</code> (only from <code>placed</code>)</li>
+      <li><code>delayed</code> — reachable from any active state; resumes to next state</li>
+      <li><code>cancelled</code> — from <code>placed</code> (sales rep or office) or from <code>pending_admin_approval</code> (admin reject)</li>
+    </ul>
+  </div>
+  <div>
+    <h3>PaymentStatus</h3>
+    <ul>
+      <li><code>pending</code></li>
+      <li><code>partially_paid</code></li>
+      <li><code>paid</code></li>
+    </ul>
+  </div>
+  <div>
+    <h3>VisitMode / VisitOutcome</h3>
+    <ul>
+      <li>mode: <code>in_store</code> | <code>remote</code></li>
+      <li>outcome: <code>order_placed</code> | <code>no_order</code></li>
     </ul>
   </div>
 </div>
@@ -898,12 +1061,18 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <tr><th>Action</th><th>admin</th><th>office_staff</th><th>sales_rep</th></tr>
   <tr><td>Manage users</td><td>✓</td><td></td><td></td></tr>
   <tr><td>Categories &amp; products CRUD</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Toggle product / variant active</td><td>✓</td><td>✓</td><td></td></tr>
   <tr><td>View products &amp; stores</td><td>✓</td><td>✓</td><td>✓ (own stores only)</td></tr>
-  <tr><td>Create store</td><td></td><td></td><td>✓</td></tr>
-  <tr><td>Approve store / set credit</td><td>✓</td><td>✓</td><td></td></tr>
-  <tr><td>Mark attendance</td><td></td><td></td><td>✓</td></tr>
+  <tr><td>Create store</td><td>✓ (pre-approved)</td><td>✓ (pre-approved)</td><td>✓ (pending)</td></tr>
+  <tr><td>Approve/reject store · set initial credit_limit</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Propose credit_limit change</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Approve/reject credit_limit change</td><td>✓</td><td></td><td></td></tr>
+  <tr><td>Reassign store</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Log visit</td><td></td><td></td><td>✓</td></tr>
   <tr><td>Place / cancel order</td><td></td><td></td><td>✓</td></tr>
-  <tr><td>Accept → deliver order</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Approve/reject pending_admin_approval order</td><td>✓</td><td></td><td></td></tr>
+  <tr><td>Accept / delay / pack / dispatch / deliver</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Record payment</td><td>✓</td><td>✓</td><td></td></tr>
 </table>
 
 <h2 id="errors">Errors</h2>

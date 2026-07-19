@@ -62,6 +62,9 @@ class AuditAction(StrEnum):
     STORE_APPROVE = "store.approve"
     STORE_REJECT = "store.reject"
     STORE_ASSIGN = "store.assign"
+    STORE_CREDIT_LIMIT_PROPOSE = "store.credit_limit.propose"
+    STORE_CREDIT_LIMIT_APPROVE = "store.credit_limit.approve"
+    STORE_CREDIT_LIMIT_REJECT = "store.credit_limit.reject"
 
     # visit (sales rep field visit)
     VISIT_MARK = "visit.mark"

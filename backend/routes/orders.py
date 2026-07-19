@@ -480,8 +480,11 @@ async def accept_order(
             order_id, new_lines, new_total, current["user"], note=None, log_edit=False
         )
 
-    # Commit inventory at the final qty_accepted for each line.
-    err = commit_inventory_for(order["lines"])
+    # Commit inventory at the final qty_accepted for each line. Each
+    # commit writes a stock_history entry tagged with this order's code.
+    err = commit_inventory_for(
+        order["lines"], order_code=order.get("code"), actor=current["user"]
+    )
     if err:
         raise HTTPException(status.HTTP_409_CONFLICT, err)
 

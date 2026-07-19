@@ -6,8 +6,9 @@ from enums.order import (
     PaymentStatus,
     payment_status_from,
 )
-from enums.store import StoreStatus
+from enums.store import CreditChangeStatus, StoreStatus
 from enums.user import ALL_ROLES, Role, UserStatus
+from enums.visit import VisitMode, VisitOutcome
 
 __all__ = [
     "AuditAction",
@@ -17,7 +18,10 @@ __all__ = [
     "OrderStatus",
     "PaymentStatus",
     "payment_status_from",
+    "CreditChangeStatus",
     "StoreStatus",
+    "VisitMode",
+    "VisitOutcome",
     "ALL_ROLES",
     "Role",
     "UserStatus",

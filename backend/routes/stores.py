@@ -3,10 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from enums.audit import AuditAction, ResourceType
 from enums.store import StoreStatus
 from enums.user import Role
-from middleware.auth import require_any_user, require_office
+from middleware.auth import require_admin, require_any_user, require_office
 from repository.store_repo import StoreRepository
 from repository.user_repo import UserRepository
 from schemas.store import (
+    CreditLimitPropose,
+    CreditLimitReject,
     Store,
     StoreApprove,
     StoreAssign,
@@ -320,6 +322,105 @@ async def assign_store(
             "sales_rep_id": after["sales_rep_id"],
             "sales_rep_name": after["sales_rep_name"],
         },
+        request=request,
+    )
+    return after
+
+
+@router.patch("/{store_id}/credit-limit", response_model=Store)
+async def propose_credit_limit(
+    store_id: str,
+    payload: CreditLimitPropose,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Office proposes a new credit_limit for a store. The change is
+    parked as `pending_credit_limit` and doesn't take effect until an
+    admin approves it via POST /credit-limit/approve. Overwrites any
+    prior pending proposal."""
+    store = StoreRepository.by_id(store_id)
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    after = StoreRepository.propose_credit_limit(store_id, payload.credit_limit)
+    record(
+        AuditAction.STORE_CREDIT_LIMIT_PROPOSE,
+        ResourceType.STORE,
+        resource_id=store_id,
+        actor=current["user"],
+        before={
+            "credit_limit": store.get("credit_limit"),
+            "pending_credit_limit": store.get("pending_credit_limit"),
+        },
+        after={
+            "credit_limit": after.get("credit_limit"),
+            "pending_credit_limit": after.get("pending_credit_limit"),
+            "reason": payload.reason,
+        },
+        request=request,
+    )
+    return after
+
+
+@router.post("/{store_id}/credit-limit/approve", response_model=Store)
+async def approve_credit_limit(
+    store_id: str,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin approves the pending credit-limit change. Applies the
+    pending value as the new credit_limit and clears the pending state."""
+    store = StoreRepository.by_id(store_id)
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    if store.get("pending_credit_limit") is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No pending credit-limit change to approve.",
+        )
+    after = StoreRepository.approve_credit_limit(store_id)
+    if after is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Pending credit-limit change cleared before approval could complete.",
+        )
+    record(
+        AuditAction.STORE_CREDIT_LIMIT_APPROVE,
+        ResourceType.STORE,
+        resource_id=store_id,
+        actor=current["user"],
+        before={"credit_limit": store.get("credit_limit")},
+        after={"credit_limit": after.get("credit_limit")},
+        request=request,
+    )
+    return after
+
+
+@router.post("/{store_id}/credit-limit/reject", response_model=Store)
+async def reject_credit_limit(
+    store_id: str,
+    payload: CreditLimitReject,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin rejects the pending credit-limit change. credit_limit stays
+    unchanged; pending_credit_limit is cleared with credit_change_status
+    set to rejected."""
+    store = StoreRepository.by_id(store_id)
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    if store.get("pending_credit_limit") is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No pending credit-limit change to reject.",
+        )
+    after = StoreRepository.reject_credit_limit(store_id)
+    record(
+        AuditAction.STORE_CREDIT_LIMIT_REJECT,
+        ResourceType.STORE,
+        resource_id=store_id,
+        actor=current["user"],
+        before={"pending_credit_limit": store.get("pending_credit_limit")},
+        after={"credit_limit": after.get("credit_limit"), "reason": payload.reason},
         request=request,
     )
     return after

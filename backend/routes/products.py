@@ -34,8 +34,6 @@ _MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 def _resolve_subcategory(subcategory_id):
-    """Look up the subcategory and its parent category. Returns the pair
-    (sub_doc, cat_doc). Raises 400 if either is missing."""
     sub = SubcategoryRepository.by_id(subcategory_id)
     if not sub:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown subcategory")
@@ -49,8 +47,6 @@ def _resolve_subcategory(subcategory_id):
 
 
 def _seed_inventory_for(product, seeds):
-    """After a product is inserted (or a variant added), create the matching
-    inventory rows. Idempotent per-variant."""
     if not seeds:
         return
     for s in seeds:
@@ -403,7 +399,9 @@ async def adjust_variant_stock(
     p = ProductRepository.by_id(product_id)
     if not p or not any(v["id"] == variant_id for v in p["variants"]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
-    updated = InventoryRepository.adjust_on_hand(variant_id, payload.delta)
+    updated = InventoryRepository.adjust_on_hand(
+        variant_id, payload.delta, reason=payload.reason, actor=current["user"]
+    )
     if updated is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

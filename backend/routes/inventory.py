@@ -71,16 +71,17 @@ async def adjust_inventory(
     request: Request,
     current=Depends(require_office),
 ):
-    """Manual on-hand adjustment. Same semantics as the legacy
-    /products/{pid}/variants/{vid}/adjust-stock route (which now delegates
-    here internally). Refuses if the resulting on-hand would drop below the
-    current reserved_quantity."""
     if payload.delta == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Delta cannot be zero")
     before = InventoryRepository.by_id(inv_id)
     if not before:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Inventory row not found")
-    after = InventoryRepository.adjust_on_hand(before["variant_id"], payload.delta)
+    after = InventoryRepository.adjust_on_hand(
+        before["variant_id"],
+        payload.delta,
+        reason=payload.reason,
+        actor=current["user"],
+    )
     if after is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

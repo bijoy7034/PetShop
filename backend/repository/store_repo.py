@@ -2,7 +2,7 @@ from pymongo import ASCENDING
 
 from config.config import settings
 from config.db import get_db
-from enums.store import StoreStatus
+from enums.store import CreditChangeStatus, StoreStatus
 from helpers.datetime import now_utc
 from helpers.mongo import oid_or_none, to_public_doc
 from repository.counter_repo import next_store_code
@@ -87,6 +87,8 @@ class StoreRepository:
             "status": status,
             "credit_limit": float(credit_limit or 0.0),
             "credit_used": 0.0,
+            "pending_credit_limit": None,
+            "credit_change_status": CreditChangeStatus.NONE.value,
             "reject_reason": None,
             "credit_period_days": int(credit_period_days if credit_period_days is not None else 30),
             "is_free_cancellation": bool(is_free_cancellation if is_free_cancellation is not None else True),
@@ -140,6 +142,70 @@ class StoreRepository:
                     "status": StoreStatus.APPROVED.value,
                     "credit_limit": float(credit_limit),
                     "reject_reason": None,
+                    "pending_credit_limit": None,
+                    "credit_change_status": CreditChangeStatus.APPROVED.value,
+                    "updated_at": now_utc(),
+                }
+            },
+        )
+        return StoreRepository.by_id(store_id)
+
+    @staticmethod
+    def propose_credit_limit(store_id, new_limit):
+        """Office proposes a new credit_limit. Sits as pending until
+        admin approves or rejects. Overwrites any prior pending proposal."""
+        oid = oid_or_none(store_id)
+        if oid is None:
+            return None
+        StoreRepository._coll().update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "pending_credit_limit": float(new_limit),
+                    "credit_change_status": CreditChangeStatus.PENDING.value,
+                    "updated_at": now_utc(),
+                }
+            },
+        )
+        return StoreRepository.by_id(store_id)
+
+    @staticmethod
+    def approve_credit_limit(store_id):
+        """Admin approves the pending credit_limit — apply it and clear
+        the pending flag. Caller must check that a pending proposal
+        actually exists."""
+        oid = oid_or_none(store_id)
+        if oid is None:
+            return None
+        current = StoreRepository._coll().find_one({"_id": oid}, {"pending_credit_limit": 1})
+        if not current or current.get("pending_credit_limit") is None:
+            return None
+        StoreRepository._coll().update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "credit_limit": float(current["pending_credit_limit"]),
+                    "pending_credit_limit": None,
+                    "credit_change_status": CreditChangeStatus.APPROVED.value,
+                    "updated_at": now_utc(),
+                }
+            },
+        )
+        return StoreRepository.by_id(store_id)
+
+    @staticmethod
+    def reject_credit_limit(store_id):
+        """Admin rejects the pending credit_limit — clear it, mark
+        rejected. credit_limit stays untouched."""
+        oid = oid_or_none(store_id)
+        if oid is None:
+            return None
+        StoreRepository._coll().update_one(
+            {"_id": oid},
+            {
+                "$set": {
+                    "pending_credit_limit": None,
+                    "credit_change_status": CreditChangeStatus.REJECTED.value,
                     "updated_at": now_utc(),
                 }
             },

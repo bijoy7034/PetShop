@@ -172,19 +172,24 @@ def release_surplus_reservations(new_lines):
             InventoryRepository.release(line["variant_id"], surplus)
 
 
-def commit_inventory_for(lines):
+def commit_inventory_for(lines, *, order_code=None, actor=None):
     """Order accepted — turn each reservation into a real consumption at
-    qty_accepted (or qty_ordered if not yet set)."""
+    qty_accepted (or qty_ordered if not yet set). Each commit writes a
+    stock_history event tagged with the order that consumed the stock."""
     applied = []
     for i, line in enumerate(lines, start=1):
         qty = _effective_qty(line)
         if qty <= 0:
             continue
-        ok = InventoryRepository.commit(line["variant_id"], qty)
+        ok = InventoryRepository.commit(
+            line["variant_id"], qty, order_code=order_code, actor=actor
+        )
         if ok is None:
             for a in applied:
                 aq = _effective_qty(a)
-                InventoryRepository.adjust_on_hand(a["variant_id"], aq)
+                InventoryRepository.adjust_on_hand(
+                    a["variant_id"], aq, reason=f"Rollback for {order_code}", actor=actor
+                )
                 InventoryRepository.reserve(a["variant_id"], aq)
             return (
                 f"Line {i}: inventory changed since order was placed — "

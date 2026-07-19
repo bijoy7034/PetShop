@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from enums.store import StoreStatus
+from enums.store import CreditChangeStatus, StoreStatus
 
 
 class GeoPoint(BaseModel):
@@ -65,6 +65,15 @@ class StoreAssign(BaseModel):
     sales_rep_id: str
 
 
+class CreditLimitPropose(BaseModel):
+    credit_limit: float = Field(ge=0)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class CreditLimitReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class Store(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -83,6 +92,8 @@ class Store(BaseModel):
     status: StoreStatus = StoreStatus.PENDING
     credit_limit: float = 0.0
     credit_used: float = 0.0
+    pending_credit_limit: float | None = None
+    credit_change_status: CreditChangeStatus = CreditChangeStatus.NONE
     reject_reason: str | None = None
     # Commercial terms snapshotted onto each order at placement so future
     # changes here don't rewrite historical orders.
