@@ -31,11 +31,6 @@ def verify_password(plain, hashed):
 
 
 def issue_access_token(email, role, session_id, ttl_minutes=None):
-    """
-    Short-lived access JWT. `session_id` is stringified so the auth middleware
-    can look up the backing refresh-token session and honour revocation before
-    accepting the token.
-    """
     if ttl_minutes is None:
         ttl_minutes = settings.ACCESS_TOKEN_TTL_MINUTES
     now = datetime.now(timezone.utc)
