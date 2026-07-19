@@ -95,6 +95,7 @@ async def create_store(
             sales_rep_name=user.get("name"),
             name=payload.name,
             location=payload.location,
+            district=payload.district,
             contact=payload.contact.model_dump(),
             geo=payload.geo.model_dump(),
             email=payload.email,
@@ -137,6 +138,7 @@ async def create_store(
         sales_rep_name=target.get("name"),
         name=payload.name,
         location=payload.location,
+        district=payload.district,
         contact=payload.contact.model_dump(),
         geo=payload.geo.model_dump(),
         email=payload.email,
@@ -144,6 +146,10 @@ async def create_store(
         notes=payload.notes,
         status=StoreStatus.APPROVED.value,
         credit_limit=credit_limit,
+        credit_period_days=payload.credit_period_days,
+        is_free_cancellation=payload.is_free_cancellation,
+        cancellation_charges=payload.cancellation_charges,
+        return_window_days=payload.return_window_days,
     )
     # Two audit rows: created AND approved-in-one-shot, so the audit trail
     # explains the store landing as approved without an approval step.

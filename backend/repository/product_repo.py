@@ -18,7 +18,8 @@ def variant_label(v):
 def _serialize_variants(variants, *, product_code, start_seq):
     """Persist only variant-identity fields. Stock and reserved counts live
     in the inventory collection — they're intentionally absent here. Each
-    variant is assigned a per-product code like PRD-0042-V03."""
+    variant is assigned a per-product code like PRD-0042-V03 and starts
+    active with an empty price history."""
     out = []
     for i, v in enumerate(variants):
         out.append(
@@ -26,6 +27,7 @@ def _serialize_variants(variants, *, product_code, start_seq):
                 "_id": ObjectId(),
                 "code": variant_code(product_code, start_seq + i),
                 "seq": start_seq + i,
+                "is_active": True,
                 "size": v.get("size"),
                 "weight": v.get("weight"),
                 "color": v.get("color"),
@@ -34,6 +36,7 @@ def _serialize_variants(variants, *, product_code, start_seq):
                 "discount_price": (
                     float(v["discount_price"]) if v.get("discount_price") is not None else None
                 ),
+                "price_history": [],
             }
         )
     return out
@@ -47,12 +50,14 @@ def _hydrate_variants(variants):
         {
             "id": str(v["_id"]),
             "code": v.get("code"),
+            "is_active": v.get("is_active", True),
             "size": v.get("size"),
             "weight": v.get("weight"),
             "color": v.get("color"),
             "sku": v.get("sku"),
             "price": v["price"],
             "discount_price": v.get("discount_price"),
+            "price_history": v.get("price_history") or [],
             "quantity_on_hand": 0,
             "reserved_quantity": 0,
             "available": 0,
@@ -129,6 +134,14 @@ class ProductRepository:
         base_price,
         discount_price,
         variants,
+        tags=None,
+        brand=None,
+        barcode=None,
+        cost_price=None,
+        tax_rate=None,
+        is_featured=False,
+        is_refundable=True,
+        is_returnable=True,
     ):
         now = now_utc()
         product_code = next_product_code()
@@ -136,6 +149,7 @@ class ProductRepository:
         doc = {
             "code": product_code,
             "next_variant_seq": len(serialized) + 1,
+            "is_active": True,
             "name": name,
             "subcategory_id": subcategory_id,
             "subcategory_name": subcategory_name,
@@ -147,6 +161,14 @@ class ProductRepository:
                 float(discount_price) if discount_price is not None else None
             ),
             "variants": serialized,
+            "tags": list(tags or []),
+            "brand": brand,
+            "barcode": barcode,
+            "cost_price": (float(cost_price) if cost_price is not None else None),
+            "tax_rate": (float(tax_rate) if tax_rate is not None else None),
+            "is_featured": bool(is_featured),
+            "is_refundable": bool(is_refundable),
+            "is_returnable": bool(is_returnable),
             "created_at": now,
             "updated_at": now,
         }
@@ -244,7 +266,11 @@ class ProductRepository:
         return ProductRepository.by_id(product_id), seed
 
     @staticmethod
-    def update_variant(product_id, variant_id, patch):
+    def update_variant(product_id, variant_id, patch, *, actor=None, reason=None):
+        """PATCH a variant. If `price` or `discount_price` change, the
+        previous (price, discount_price) is pushed to the variant's
+        price_history[] BEFORE the new values are set, so history and
+        current state are updated atomically in one Mongo call."""
         oid = oid_or_none(product_id)
         void = oid_or_none(variant_id)
         if oid is None or void is None:
@@ -252,13 +278,97 @@ class ProductRepository:
         patch = {k: v for k, v in patch.items() if v is not None}
         if not patch:
             return ProductRepository.by_id(product_id)
+
+        # Detect a price change to decide whether we also need to push a
+        # history entry. Cheap projection read first.
+        history_event = None
+        if "price" in patch or "discount_price" in patch:
+            current = ProductRepository._coll().find_one(
+                {"_id": oid, "variants._id": void},
+                {"variants.$": 1},
+            )
+            if current and current.get("variants"):
+                v = current["variants"][0]
+                old_price = float(v.get("price") or 0)
+                old_dp = v.get("discount_price")
+                new_price = float(patch.get("price", old_price))
+                new_dp = patch["discount_price"] if "discount_price" in patch else old_dp
+                if new_price != old_price or new_dp != old_dp:
+                    history_event = {
+                        "price": old_price,
+                        "discount_price": old_dp,
+                        "variant_id": str(void),
+                        "changed_at": now_utc(),
+                        "changed_by_id": (actor or {}).get("_id"),
+                        "changed_by_name": (actor or {}).get("name"),
+                        "reason": reason,
+                    }
+
         set_doc = {f"variants.$.{k}": v for k, v in patch.items()}
         set_doc["updated_at"] = now_utc()
+        update = {"$set": set_doc}
+        if history_event:
+            update["$push"] = {"variants.$.price_history": history_event}
         ProductRepository._coll().update_one(
             {"_id": oid, "variants._id": void},
-            {"$set": set_doc},
+            update,
         )
         return ProductRepository.by_id(product_id)
+
+    @staticmethod
+    def toggle_active(product_id):
+        """Atomically flip product.is_active."""
+        oid = oid_or_none(product_id)
+        if oid is None:
+            return None
+        # Read → compute → write. Use find_one_and_update with an
+        # aggregation-pipeline update so the flip is atomic. Requires
+        # MongoDB 4.2+ (Atlas is fine).
+        doc = ProductRepository._coll().find_one_and_update(
+            {"_id": oid},
+            [{"$set": {
+                "is_active": {"$not": ["$is_active"]},
+                "updated_at": now_utc(),
+            }}],
+            return_document=ReturnDocument.AFTER,
+        )
+        if not doc:
+            return None
+        return _to_public(doc)
+
+    @staticmethod
+    def toggle_variant_active(product_id, variant_id):
+        """Atomically flip a variant's is_active flag."""
+        oid = oid_or_none(product_id)
+        void = oid_or_none(variant_id)
+        if oid is None or void is None:
+            return None
+        doc = ProductRepository._coll().find_one_and_update(
+            {"_id": oid, "variants._id": void},
+            [{"$set": {
+                "variants": {
+                    "$map": {
+                        "input": "$variants",
+                        "as": "v",
+                        "in": {
+                            "$cond": [
+                                {"$eq": ["$$v._id", void]},
+                                {"$mergeObjects": [
+                                    "$$v",
+                                    {"is_active": {"$not": [{"$ifNull": ["$$v.is_active", True]}]}},
+                                ]},
+                                "$$v",
+                            ]
+                        },
+                    }
+                },
+                "updated_at": now_utc(),
+            }}],
+            return_document=ReturnDocument.AFTER,
+        )
+        if not doc:
+            return None
+        return _to_public(doc)
 
     @staticmethod
     def remove_variant(product_id, variant_id):
@@ -277,15 +387,17 @@ class ProductRepository:
 
     @staticmethod
     def get_variant(product_id, variant_id):
-        """Identity + price for a variant. Stock lives in inventory — the
-        caller joins the two."""
+        """Identity + price for a variant. Also returns is_active flags on
+        both the product and the variant so callers (order placement)
+        can reject inactive items. Stock lives in inventory — the caller
+        joins the two."""
         oid = oid_or_none(product_id)
         void = oid_or_none(variant_id)
         if oid is None or void is None:
             return None
         doc = ProductRepository._coll().find_one(
             {"_id": oid, "variants._id": void},
-            {"name": 1, "code": 1, "variants.$": 1},
+            {"name": 1, "code": 1, "is_active": 1, "variants.$": 1},
         )
         if not doc or not doc.get("variants"):
             return None
@@ -294,9 +406,11 @@ class ProductRepository:
             "product_id": str(doc["_id"]),
             "product_code": doc.get("code"),
             "product_name": doc["name"],
+            "product_active": doc.get("is_active", True),
             "variant_id": str(v["_id"]),
             "variant_code": v.get("code"),
             "variant_label": variant_label(v),
+            "variant_active": v.get("is_active", True),
             "price": v["price"],
             "discount_price": v.get("discount_price"),
         }

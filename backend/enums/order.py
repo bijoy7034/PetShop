@@ -2,12 +2,14 @@ from enum import StrEnum
 
 
 class OrderStatus(StrEnum):
+    PENDING_ADMIN_APPROVAL = "pending_admin_approval"
     PLACED = "placed"
     ACCEPTED = "accepted"
     PACKING = "packing"
     OUT_FOR_DELIVERY = "out_for_delivery"
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
+    DELAYED = "delayed"
 
 
 class PaymentStatus(StrEnum):
@@ -32,24 +34,54 @@ def payment_status_from(total, amount_paid):
 
 # Legal transitions used by the office-driven state machine. Sales rep
 # cancellation is a separate check (only allowed from PLACED) enforced in
-# the route, not this table.
+# the route, not this table. DELAYED is an overlay reachable from any
+# active status; from DELAYED the order can resume to any next state.
+_ACTIVE = (
+    OrderStatus.PLACED.value,
+    OrderStatus.ACCEPTED.value,
+    OrderStatus.PACKING.value,
+    OrderStatus.OUT_FOR_DELIVERY.value,
+)
+
 ORDER_TRANSITIONS: dict[str, tuple[str, ...]] = {
-    OrderStatus.PLACED.value: (OrderStatus.ACCEPTED.value,),
-    OrderStatus.ACCEPTED.value: (OrderStatus.PACKING.value,),
-    OrderStatus.PACKING.value: (OrderStatus.OUT_FOR_DELIVERY.value,),
-    OrderStatus.OUT_FOR_DELIVERY.value: (OrderStatus.DELIVERED.value,),
+    OrderStatus.PENDING_ADMIN_APPROVAL.value: (
+        OrderStatus.PLACED.value,
+        OrderStatus.CANCELLED.value,
+    ),
+    OrderStatus.PLACED.value: (
+        OrderStatus.ACCEPTED.value,
+        OrderStatus.DELAYED.value,
+    ),
+    OrderStatus.ACCEPTED.value: (
+        OrderStatus.PACKING.value,
+        OrderStatus.DELAYED.value,
+    ),
+    OrderStatus.PACKING.value: (
+        OrderStatus.OUT_FOR_DELIVERY.value,
+        OrderStatus.DELAYED.value,
+    ),
+    OrderStatus.OUT_FOR_DELIVERY.value: (
+        OrderStatus.DELIVERED.value,
+        OrderStatus.DELAYED.value,
+    ),
+    OrderStatus.DELAYED.value: (
+        OrderStatus.ACCEPTED.value,
+        OrderStatus.PACKING.value,
+        OrderStatus.OUT_FOR_DELIVERY.value,
+        OrderStatus.DELIVERED.value,
+    ),
 }
 
-# Statuses that still count against a store's credit line. Cancelled orders
-# release credit; delivered orders keep counting until manual write-off (not
-# modelled in this release).
+# Statuses that still count against a store's credit line.
+# pending_admin_approval doesn't count (admin hasn't approved the exposure yet).
+# cancelled releases credit.
 OPEN_STATUSES: frozenset[str] = frozenset(
-    s.value
-    for s in (
-        OrderStatus.PLACED,
-        OrderStatus.ACCEPTED,
-        OrderStatus.PACKING,
-        OrderStatus.OUT_FOR_DELIVERY,
-        OrderStatus.DELIVERED,
+    (
+        OrderStatus.PLACED.value,
+        OrderStatus.ACCEPTED.value,
+        OrderStatus.PACKING.value,
+        OrderStatus.OUT_FOR_DELIVERY.value,
+        OrderStatus.DELIVERED.value,
+        OrderStatus.DELAYED.value,
     )
 )

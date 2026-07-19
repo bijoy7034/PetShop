@@ -63,14 +63,20 @@ class StoreRepository:
         email,
         gst_number,
         notes,
+        district=None,
         status=StoreStatus.PENDING.value,
         credit_limit=0.0,
+        credit_period_days=30,
+        is_free_cancellation=True,
+        cancellation_charges=0.0,
+        return_window_days=7,
     ):
         now = now_utc()
         doc = {
             "code": next_store_code(),
             "name": name,
             "location": location,
+            "district": district,
             "contact": contact,
             "geo": geo,
             "email": email,
@@ -82,6 +88,10 @@ class StoreRepository:
             "credit_limit": float(credit_limit or 0.0),
             "credit_used": 0.0,
             "reject_reason": None,
+            "credit_period_days": int(credit_period_days if credit_period_days is not None else 30),
+            "is_free_cancellation": bool(is_free_cancellation if is_free_cancellation is not None else True),
+            "cancellation_charges": float(cancellation_charges or 0.0),
+            "return_window_days": int(return_window_days if return_window_days is not None else 7),
             "created_at": now,
             "updated_at": now,
         }

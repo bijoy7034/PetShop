@@ -146,6 +146,14 @@ async def create_product(
         base_price=payload.base_price,
         discount_price=payload.discount_price,
         variants=variants,
+        tags=payload.tags,
+        brand=payload.brand,
+        barcode=payload.barcode,
+        cost_price=payload.cost_price,
+        tax_rate=payload.tax_rate,
+        is_featured=payload.is_featured,
+        is_refundable=payload.is_refundable,
+        is_returnable=payload.is_returnable,
     )
     seeds = p.pop("_inventory_seed", [])
     _seed_inventory_for(p, seeds)
@@ -268,7 +276,12 @@ async def update_variant(
     current=Depends(require_office),
 ):
     patch = payload.model_dump(exclude_unset=True)
-    after = ProductRepository.update_variant(product_id, variant_id, patch)
+    # `reason` isn't a stored variant field — it decorates the price_history
+    # entry the repo pushes when price or discount_price actually change.
+    reason = patch.pop("reason", None)
+    after = ProductRepository.update_variant(
+        product_id, variant_id, patch, actor=current["user"], reason=reason
+    )
     if after is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
     # If any of the identity fields changed, refresh the label on the
@@ -284,7 +297,63 @@ async def update_variant(
         ResourceType.PRODUCT,
         resource_id=product_id,
         actor=current["user"],
-        after={"variant_id": variant_id, **patch},
+        after={"variant_id": variant_id, **patch, "reason": reason},
+        request=request,
+    )
+    return _with_inventory(after)
+
+
+@router.patch("/{product_id}/toggle-active", response_model=Product)
+async def toggle_product_active(
+    product_id: str,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Flip a product's is_active flag. Inactive products (and all their
+    variants) can't be added to new orders."""
+    before = ProductRepository.by_id(product_id)
+    if not before:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    after = ProductRepository.toggle_active(product_id)
+    record(
+        AuditAction.PRODUCT_UPDATE,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        before={"is_active": before.get("is_active", True)},
+        after={"is_active": after["is_active"]},
+        request=request,
+    )
+    return _with_inventory(after)
+
+
+@router.patch(
+    "/{product_id}/variants/{variant_id}/toggle-active",
+    response_model=Product,
+)
+async def toggle_variant_active(
+    product_id: str,
+    variant_id: str,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Flip a specific variant's is_active flag independently of its
+    parent product. Inactive variants can't be added to new orders."""
+    before = ProductRepository.by_id(product_id)
+    if not before or not any(v["id"] == variant_id for v in before["variants"]):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+    after = ProductRepository.toggle_variant_active(product_id, variant_id)
+    if after is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+    before_v = next(v for v in before["variants"] if v["id"] == variant_id)
+    after_v = next(v for v in after["variants"] if v["id"] == variant_id)
+    record(
+        AuditAction.VARIANT_UPDATE,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        before={"variant_id": variant_id, "is_active": before_v.get("is_active", True)},
+        after={"variant_id": variant_id, "is_active": after_v["is_active"]},
         request=request,
     )
     return _with_inventory(after)

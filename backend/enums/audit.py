@@ -68,10 +68,14 @@ class AuditAction(StrEnum):
 
     # order lifecycle
     ORDER_PLACE = "order.place"
+    ORDER_PENDING_APPROVAL = "order.pending_approval"
+    ORDER_ADMIN_APPROVE = "order.admin_approve"
+    ORDER_ADMIN_REJECT = "order.admin_reject"
     ORDER_CANCEL = "order.cancel"
     ORDER_ACCEPT = "order.accept"
+    ORDER_LINES_EDIT = "order.lines_edit"
+    ORDER_DELAY = "order.delay"
     ORDER_PACK = "order.pack"
     ORDER_DISPATCH = "order.dispatch"
     ORDER_DELIVER = "order.deliver"
     ORDER_PAYMENT_RECORDED = "order.payment_recorded"
-    ORDER_LINES_EDIT = "order.lines_edit"

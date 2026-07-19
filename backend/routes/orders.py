@@ -3,7 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from enums.audit import AuditAction, ResourceType
 from enums.order import ORDER_TRANSITIONS, OrderStatus
 from enums.store import StoreStatus
-from middleware.auth import require_any_user, require_office, require_sales_rep
+from enums.user import Role
+from middleware.auth import (
+    require_admin,
+    require_any_user,
+    require_office,
+    require_sales_rep,
+)
 from repository.order_repo import OrderRepository
 from repository.store_repo import StoreRepository
 from schemas.order import (
@@ -11,17 +17,18 @@ from schemas.order import (
     OrderAccept,
     OrderCancel,
     OrderCreate,
+    OrderDelay,
     OrderListResponse,
+    OrderReject,
     PaymentCreate,
 )
 from services.audit_service import record
 from services.order_service import (
-    apply_reservation_delta,
+    apply_accept_adjustments,
     commit_inventory_for,
-    line_deltas,
     price_order_lines,
     release_inventory_for,
-    reprice_lines,
+    release_surplus_reservations,
     reserve_inventory_for,
 )
 
@@ -92,28 +99,32 @@ async def place_order(
     if err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
 
+    # Credit check — over-limit orders no longer reject; they go into
+    # pending_admin_approval and don't consume credit until an admin
+    # approves them.
     available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
-    if order_total > available:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Order total {order_total:.2f} exceeds available credit "
-            f"{available:.2f} (limit {store['credit_limit']:.2f}, "
-            f"used {store['credit_used']:.2f}).",
-        )
+    over_credit = order_total > available
+    initial_status = (
+        OrderStatus.PENDING_ADMIN_APPROVAL.value if over_credit
+        else OrderStatus.PLACED.value
+    )
 
-    # Reserve inventory FIRST — if any line can't be reserved, no state has
-    # to be rolled back. Then hold credit. Then insert the order.
+    # Reserve inventory regardless — the sales rep's intent should hold
+    # the units even while admin decides. Rejection releases them.
     reserve_err = reserve_inventory_for(lines)
     if reserve_err:
         raise HTTPException(status.HTTP_409_CONFLICT, reserve_err)
 
-    hold = StoreRepository.adjust_credit_used(store["_id"], order_total)
-    if hold is None:
-        release_inventory_for(lines)
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Credit hold failed (concurrent order). Please retry.",
-        )
+    # Only bump credit_used when the order is going straight to 'placed'.
+    # Pending orders don't count against the credit line yet.
+    if not over_credit:
+        hold = StoreRepository.adjust_credit_used(store["_id"], order_total)
+        if hold is None:
+            release_inventory_for(lines)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Credit hold failed (concurrent order). Please retry.",
+            )
 
     try:
         order = OrderRepository.insert(
@@ -122,21 +133,146 @@ async def place_order(
             lines=lines,
             total=order_total,
             notes=payload.notes,
+            status=initial_status,
+            expected_delivery_date=payload.expected_delivery_date,
         )
     except Exception:
-        StoreRepository.adjust_credit_used(store["_id"], -order_total)
+        if not over_credit:
+            StoreRepository.adjust_credit_used(store["_id"], -order_total)
         release_inventory_for(lines)
         raise
 
     record(
-        AuditAction.ORDER_PLACE,
+        AuditAction.ORDER_PENDING_APPROVAL if over_credit else AuditAction.ORDER_PLACE,
         ResourceType.ORDER,
         resource_id=order["_id"],
         actor=user,
-        after={"store_id": store["_id"], "total": order_total, "lines": len(lines)},
+        after={
+            "store_id": store["_id"],
+            "total": order_total,
+            "lines": len(lines),
+            "status": initial_status,
+            "over_credit": over_credit,
+            "available_at_placement": available,
+        },
         request=request,
     )
     return order
+
+
+@router.post("/{order_id}/admin-approve", response_model=Order)
+async def admin_approve_order(
+    order_id: str,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin approves a pending_admin_approval order. The credit line is
+    re-checked (another paid order could have consumed the room since the
+    over-credit order was placed); if it still doesn't fit, returns 409
+    and the admin can either reject the order or raise the store's
+    credit_limit."""
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order["status"] != OrderStatus.PENDING_ADMIN_APPROVAL.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Only pending_admin_approval orders can be approved. Current: '{order['status']}'.",
+        )
+    store = StoreRepository.by_id(order["store_id"])
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store no longer exists")
+    available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
+    total = float(order.get("total") or 0)
+    if total > available + 1e-6:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Cannot approve — order total {total:.2f} still exceeds available "
+            f"credit {available:.2f}. Raise the store's credit_limit or reject.",
+        )
+    hold = StoreRepository.adjust_credit_used(order["store_id"], total)
+    if hold is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Credit hold failed at approval (concurrent write). Retry.",
+        )
+    after = OrderRepository.set_status(
+        order_id, OrderStatus.PLACED.value, current["user"], note="Approved by admin."
+    )
+    record(
+        AuditAction.ORDER_ADMIN_APPROVE,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={"status": after["status"], "credit_held": total},
+        request=request,
+    )
+    return after
+
+
+@router.post("/{order_id}/admin-reject", response_model=Order)
+async def admin_reject_order(
+    order_id: str,
+    payload: OrderReject,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin rejects a pending_admin_approval order. Inventory reservations
+    are released; no credit line touched (never bumped for pending). The
+    order moves to 'cancelled' with rejection_reason recorded."""
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order["status"] != OrderStatus.PENDING_ADMIN_APPROVAL.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Only pending_admin_approval orders can be admin-rejected. Current: '{order['status']}'.",
+        )
+    release_inventory_for(order["lines"])
+    after = OrderRepository.admin_reject(order_id, payload.reason, current["user"])
+    record(
+        AuditAction.ORDER_ADMIN_REJECT,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={"status": after["status"], "rejection_reason": payload.reason},
+        request=request,
+    )
+    return after
+
+
+@router.post("/{order_id}/delay", response_model=Order)
+async def delay_order(
+    order_id: str,
+    payload: OrderDelay,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Mark an active order as delayed with a mandatory reason. Reachable
+    from placed/accepted/packing/out_for_delivery. From delayed, the
+    office can resume to any next legal state."""
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    allowed = ORDER_TRANSITIONS.get(order["status"], ())
+    if OrderStatus.DELAYED.value not in allowed:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot mark a '{order['status']}' order as delayed.",
+        )
+    after = OrderRepository.mark_delayed(order_id, payload.reason, current["user"])
+    record(
+        AuditAction.ORDER_DELAY,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={"status": after["status"], "delay_reason": payload.reason},
+        request=request,
+    )
+    return after
 
 
 @router.post("/{order_id}/cancel", response_model=Order)
@@ -296,58 +432,34 @@ async def accept_order(
     order = OrderRepository.by_id(order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
-    if order["status"] != OrderStatus.PLACED.value:
+    # Accept is legal from placed OR delayed (resume a paused order).
+    if OrderStatus.ACCEPTED.value not in ORDER_TRANSITIONS.get(order["status"], ()):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Cannot accept an order in '{order['status']}' status.",
         )
 
-    edited = payload is not None and payload.lines
+    adjustments = payload.lines if payload else None
+    new_lines, new_total, err = apply_accept_adjustments(order["lines"], adjustments)
+    if err:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+    edited = adjustments is not None and any(
+        (l.get("qty_accepted") or 0) != int(l["qty_ordered"]) for l in new_lines
+    )
+    old_total = float(order.get("total") or 0)
+
     if edited:
-        # 1. Reprice new lines (no stock check here — the reservation
-        # delta below does its own atomic check).
-        new_lines, new_total, err = reprice_lines(payload.lines)
-        if err:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+        # Release the surplus reservations back to inventory.
+        release_surplus_reservations(new_lines)
 
-        # 2. Credit check — the new total must fit in the credit line
-        # accounting for the current order's already-held credit.
-        store = StoreRepository.by_id(order["store_id"])
-        if not store:
-            raise HTTPException(
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-                "Store attached to order no longer exists.",
-            )
-        old_total = float(order.get("total") or 0)
-        current_used = float(store.get("credit_used") or 0)
-        # Available room = limit - (credit currently used by everyone
-        # OTHER than this order). Add old_total back because we're
-        # about to release it.
-        headroom = float(store.get("credit_limit", 0)) - (current_used - old_total)
-        if new_total > headroom + 1e-6:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"Edited order total {new_total:.2f} exceeds available credit "
-                f"{headroom:.2f} for this store.",
-            )
-
-        # 3. Apply the reservation delta. Positive reserves are attempted
-        # first with rollback on failure — inventory is unchanged if we
-        # fail here.
-        deltas = line_deltas(order["lines"], new_lines)
-        if deltas:
-            err = apply_reservation_delta(deltas)
-            if err:
-                raise HTTPException(status.HTTP_409_CONFLICT, err)
-
-        # 4. Adjust the store's credit_used by (new - old).
+        # Adjust the store's credit line: previously-held old_total was
+        # based on qty_ordered; we're keeping only new_total. Excess is
+        # released to the credit line.
         credit_delta = new_total - old_total
         if credit_delta != 0:
-            StoreRepository.adjust_credit_used(store["_id"], credit_delta)
+            StoreRepository.adjust_credit_used(order["store_id"], credit_delta)
 
-        # 5. Persist the edit on the order document.
-        old_lines_snapshot = list(order["lines"])
-        note = payload.note or "Lines edited by office at acceptance."
+        note = payload.note or "Quantities adjusted at acceptance."
         order = OrderRepository.update_lines(
             order_id, new_lines, new_total, current["user"], note=note
         )
@@ -356,30 +468,36 @@ async def accept_order(
             ResourceType.ORDER,
             resource_id=order_id,
             actor=current["user"],
-            before={
-                "lines": [_line_brief(l) for l in old_lines_snapshot],
-                "total": old_total,
-            },
+            before={"total": old_total},
             after={
-                "lines": [_line_brief(l) for l in new_lines],
                 "total": new_total,
+                "lines": [_line_brief(l) for l in new_lines],
             },
             request=request,
         )
+    else:
+        order = OrderRepository.update_lines(
+            order_id, new_lines, new_total, current["user"], note=None, log_edit=False
+        )
 
-    # 6. Commit inventory: turn reservations into consumptions.
+    # Commit inventory at the final qty_accepted for each line.
     err = commit_inventory_for(order["lines"])
     if err:
         raise HTTPException(status.HTTP_409_CONFLICT, err)
 
-    after = OrderRepository.set_status(order_id, OrderStatus.ACCEPTED.value, current["user"])
+    after = OrderRepository.mark_accepted(order_id, current["user"])
     record(
         AuditAction.ORDER_ACCEPT,
         ResourceType.ORDER,
         resource_id=order_id,
         actor=current["user"],
         before={"status": order["status"]},
-        after={"status": OrderStatus.ACCEPTED.value, "edited": bool(edited)},
+        after={
+            "status": OrderStatus.ACCEPTED.value,
+            "edited": bool(edited),
+            "accepted_by_id": after.get("accepted_by_id"),
+            "accepted_by_name": after.get("accepted_by_name"),
+        },
         request=request,
     )
     return after
@@ -389,9 +507,44 @@ def _line_brief(line):
     return {
         "product_id": line.get("product_id"),
         "variant_id": line.get("variant_id"),
-        "qty": line.get("qty"),
+        "qty_ordered": line.get("qty_ordered"),
+        "qty_accepted": line.get("qty_accepted"),
         "unit_price": line.get("unit_price"),
     }
+
+
+@router.post("/{order_id}/deliver", response_model=Order)
+async def deliver_order(
+    order_id: str,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Mark the order as delivered. Stamps delivered_at and computes
+    payment_due_date from the snapshotted credit_period_days."""
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    allowed = ORDER_TRANSITIONS.get(order["status"], ())
+    if OrderStatus.DELIVERED.value not in allowed:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot deliver an order in '{order['status']}' status.",
+        )
+    after = OrderRepository.mark_delivered(order_id, current["user"])
+    record(
+        AuditAction.ORDER_DELIVER,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={
+            "status": after["status"],
+            "delivered_at": after.get("delivered_at"),
+            "payment_due_date": after.get("payment_due_date"),
+        },
+        request=request,
+    )
+    return after
 
 
 router.post("/{order_id}/pack", response_model=Order)(
@@ -399,7 +552,4 @@ router.post("/{order_id}/pack", response_model=Order)(
 )
 router.post("/{order_id}/dispatch", response_model=Order)(
     _transition_route(OrderStatus.OUT_FOR_DELIVERY.value, AuditAction.ORDER_DISPATCH)
-)
-router.post("/{order_id}/deliver", response_model=Order)(
-    _transition_route(OrderStatus.DELIVERED.value, AuditAction.ORDER_DELIVER)
 )
