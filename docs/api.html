@@ -327,8 +327,8 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
   <tr><th>Column</th><th>Required?</th><th>Notes</th></tr>
   <tr><td><code>Product Name</code> (alias <code>name</code>)</td><td><strong>yes</strong></td><td>Merge key.</td></tr>
   <tr><td><code>Client Product Code</code> (alias <code>Product Code</code>)</td><td>no</td><td>Client-facing identifier, separate from our system-minted <code>PRD-XXXX</code>.</td></tr>
-  <tr><td><code>Category</code></td><td><strong>yes</strong></td><td>Must exist; resolved by name.</td></tr>
-  <tr><td><code>Subcategory</code></td><td><strong>yes</strong></td><td>Must exist under that category.</td></tr>
+  <tr><td><code>Category</code></td><td><strong>yes</strong></td><td>Auto-created if it doesn't exist. Case-insensitive match — "Dog Food" and "dog food" resolve to the same row.</td></tr>
+  <tr><td><code>Subcategory</code></td><td><strong>yes</strong></td><td>Auto-created under the resolved category if it doesn't exist. Case-insensitive within the category.</td></tr>
   <tr><td><code>Description</code></td><td>no</td><td></td></tr>
   <tr><td><code>Brand</code></td><td>no</td><td></td></tr>
   <tr><td><code>Unit</code></td><td>no</td><td>Unit of sale (e.g. <code>kg</code>, <code>pcs</code>, <code>box</code>).</td></tr>
@@ -351,7 +351,16 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
   <tr><td><code>Opening Stock</code> (alias <code>Variant Stock</code>, <code>Stock</code>)</td><td>Written to the variant's inventory row as the opening on-hand.</td></tr>
   <tr><td><code>Reorder Level</code></td><td>Written to the inventory row for low-stock alerts.</td></tr>
 </table>
-<p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>category</code> AND <code>subcategory</code> are <strong>required</strong> — the sheet resolves them by name (case-insensitive on subcategory) and rejects rows referencing unknown ones. Categories and subcategories must exist beforehand (create them via the API before uploading).</p>
+<p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>Category</code> AND <code>Subcategory</code> are <strong>required</strong> per row. Unknown categories or subcategories are <strong>auto-created</strong> from the sheet — the response lists them in <code>categories_created</code> / <code>subcategories_created</code> so you can spot accidental typos.</p>
+<p class="label">Response 200</p>
+<pre><code>{
+  "created": 3,
+  "updated": 0,
+  "failed": 0,
+  "rows": [ /* one entry per sheet row */ ],
+  "categories_created":    ["Dog Food", "Toys"],
+  "subcategories_created": ["Dry kibble (in Dog Food)", "Chew (in Toys)"]
+}</code></pre>
 
 <h3>3c) Set opening stock / reorder level (office)</h3>
 <p>Variants are auto-created with <code>quantity_on_hand = 0</code>. Load opening stock with the adjust endpoint (which now writes to the inventory collection), and set reorder levels for low-stock alerts:</p>
@@ -733,14 +742,16 @@ POST /api/orders/{order_id}/deliver</code></pre>
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products/bulk-upload <span class="role">office</span></h4>
   <p><code>multipart/form-data</code> with a <code>file</code> field (.xlsx). Max 5 MB.</p>
+  <p>Unknown categories and subcategories referenced in the sheet are auto-created (case-insensitive lookup avoids duplicating on typo casing). The response lists what got added so you can review for accidental typos.</p>
   <p class="label">Response 200</p>
   <pre><code>{
-  "created": 2, "updated": 1, "failed": 1,
+  "created": 2, "updated": 1, "failed": 0,
   "rows": [
     { "row": 2, "action": "created", "product_name": "Pedigree Adult Chicken &amp; Vegetables" },
-    { "row": 5, "action": "updated", "product_name": "Whiskas Ocean Fish" },
-    { "row": 7, "action": "failed",  "product_name": "Bogus", "error": "Unknown category 'Foobar'" }
-  ]
+    { "row": 5, "action": "updated", "product_name": "Whiskas Ocean Fish" }
+  ],
+  "categories_created":    ["Dog Food"],
+  "subcategories_created": ["Dry kibble (in Dog Food)"]
 }</code></pre>
 </div>
 

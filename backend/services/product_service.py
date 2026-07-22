@@ -182,33 +182,61 @@ def _to_int(v):
         return None
 
 
-def _resolve_taxonomy(category_name, subcategory_name):
-    """Resolve the (category, subcategory) pair from the two sheet columns.
+def _find_category_ci(name):
+    """Case-insensitive category lookup. Prevents 'Dog Food' and 'dog food'
+    from becoming two separate categories."""
+    exact = CategoryRepository.by_name(name)
+    if exact:
+        return exact
+    # Fall back to a case-insensitive scan.
+    items, _ = CategoryRepository.list(search=name, limit=100)
+    for c in items:
+        if c["name"].lower() == name.lower():
+            return c
+    return None
 
-    - If both are supplied: category must exist, subcategory must exist under
-      it (name lookup, case-insensitive on subcategory).
-    - If only `category` is supplied: subcategory is left None.
-    - If only `subcategory` is supplied: reject — subcategory names aren't
-      globally unique, so we need a category to disambiguate.
+
+def _get_or_create_category(name, created_names):
+    """Find a category (case-insensitive) or create it, preserving the
+    sheet's casing on first insert. Records the display name in
+    `created_names` when a new row is inserted."""
+    existing = _find_category_ci(name)
+    if existing:
+        return existing
+    cat = CategoryRepository.insert(name=name)
+    created_names.append(name)
+    return cat
+
+
+def _get_or_create_subcategory(name, category, created_labels):
+    """Find or create a subcategory scoped to the given category
+    (case-insensitive match). Records "<sub> (in <cat>)" in
+    `created_labels` when a new row is inserted so the caller can review."""
+    subs, _ = SubcategoryRepository.list(category_id=category["_id"], limit=500)
+    for s in subs:
+        if s["name"].lower() == name.lower():
+            return s
+    sub = SubcategoryRepository.insert(
+        name=name, category_id=category["_id"], category_name=category["name"]
+    )
+    created_labels.append(f"{name} (in {category['name']})")
+    return sub
+
+
+def _resolve_taxonomy(category_name, subcategory_name, cats_created, subs_created):
+    """Resolve the (category, subcategory) pair from the two sheet columns.
+    Auto-creates missing rows so the sheet can bootstrap a fresh catalog
+    with no pre-setup. Case-insensitive matching avoids duplicating on
+    typo casing.
+
+    Both columns are required — no half-tagged products.
     """
     if not category_name:
         return None, None, "'category' column is required"
-    cat = CategoryRepository.by_name(category_name)
-    if not cat:
-        return None, None, f"Unknown category '{category_name}'"
     if not subcategory_name:
-        return cat, None, None
-    # Case-insensitive match to be forgiving on Excel input.
-    subs, _ = SubcategoryRepository.list(category_id=cat["_id"], limit=500)
-    sub = next(
-        (s for s in subs if s["name"].lower() == subcategory_name.lower()),
-        None,
-    )
-    if not sub:
-        return None, None, (
-            f"Unknown subcategory '{subcategory_name}' in category "
-            f"'{cat['name']}'"
-        )
+        return None, None, "'subcategory' column is required"
+    cat = _get_or_create_category(category_name, cats_created)
+    sub = _get_or_create_subcategory(subcategory_name, cat, subs_created)
     return cat, sub, None
 
 
@@ -276,6 +304,8 @@ def import_products(file_bytes):
             "updated": 0,
             "failed": 0,
             "rows": [{"row": 1, "action": "header_error", "error": header_error}],
+            "categories_created": [],
+            "subcategories_created": [],
         }
 
     # Merge rows sharing the same name into a single product with N variants.
@@ -294,6 +324,8 @@ def import_products(file_bytes):
 
     reports = []
     created = updated = failed = 0
+    cats_created: list[str] = []
+    subs_created: list[str] = []
 
     for key in order:
         if isinstance(key, tuple):
@@ -305,24 +337,12 @@ def import_products(file_bytes):
         bundle = by_name[key]
         head = bundle["first"]
 
-        cat, sub, tax_err = _resolve_taxonomy(head["category"], head["subcategory"])
+        cat, sub, tax_err = _resolve_taxonomy(
+            head["category"], head["subcategory"], cats_created, subs_created,
+        )
         if tax_err:
             reports.append(
                 {"row": head["_row"], "action": "failed", "product_name": key, "error": tax_err}
-            )
-            failed += len(bundle["variants"])
-            continue
-        # Bulk upload requires a subcategory — Product now stores it as a
-        # required field. Reject rows that only supplied a category so the
-        # sheet can't create half-tagged products.
-        if sub is None:
-            reports.append(
-                {
-                    "row": head["_row"],
-                    "action": "failed",
-                    "product_name": key,
-                    "error": "'subcategory' column is required for every product",
-                }
             )
             failed += len(bundle["variants"])
             continue
@@ -439,4 +459,11 @@ def import_products(file_bytes):
                     {"row": r["_row"], "action": "created", "product_name": key}
                 )
 
-    return {"created": created, "updated": updated, "failed": failed, "rows": reports}
+    return {
+        "created": created,
+        "updated": updated,
+        "failed": failed,
+        "rows": reports,
+        "categories_created": cats_created,
+        "subcategories_created": subs_created,
+    }

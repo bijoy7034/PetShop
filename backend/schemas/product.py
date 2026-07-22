@@ -172,3 +172,7 @@ class BulkUploadResponse(BaseModel):
     updated: int
     failed: int
     rows: list[BulkUploadRow]
+    # Auto-created taxonomy so the caller can review what got added on
+    # their behalf and catch accidental typos.
+    categories_created: list[str] = []
+    subcategories_created: list[str] = []
