@@ -71,18 +71,35 @@ def expand_option_sets(option_sets, base_price):
     return out
 
 _HEADER_ALIASES = {
+    # Product name
     "name": "name",
     "product": "name",
     "product name": "name",
+    # External client-facing code for the product (distinct from our
+    # system-minted PRD-XXXX). Product-level.
+    "client product code": "client_product_code",
+    "client_product_code": "client_product_code",
+    "product code": "client_product_code",
+    "product_code": "client_product_code",
+    # Taxonomy
     "category": "category",
     "subcategory": "subcategory",
     "sub category": "subcategory",
     "sub-category": "subcategory",
     "description": "description",
+    # Product-level attributes
+    "brand": "brand",
+    "unit": "unit",
+    "images": "images",
+    "image": "images",
+    # Prices
     "base price": "base_price",
     "base_price": "base_price",
     "discount price": "discount_price",
     "discount_price": "discount_price",
+    # Variant axes
+    "variant name": "variant_name",
+    "variant_name": "variant_name",
     "variant size": "variant_size",
     "variant_size": "variant_size",
     "size": "variant_size",
@@ -95,14 +112,32 @@ _HEADER_ALIASES = {
     "variant sku": "variant_sku",
     "variant_sku": "variant_sku",
     "sku": "variant_sku",
+    # Variant image (per-variant override; separate cell from product images)
+    "variant image": "variant_image",
+    "variant_image": "variant_image",
+    # Prices per variant
     "variant price": "variant_price",
     "variant_price": "variant_price",
     "variant discount price": "variant_discount_price",
     "variant_discount_price": "variant_discount_price",
+    # Stock + reorder
     "variant stock": "variant_stock",
     "variant_stock": "variant_stock",
+    "opening stock": "variant_stock",
     "stock": "variant_stock",
+    "reorder level": "reorder_level",
+    "reorder_level": "reorder_level",
 }
+
+
+def _to_str_list(v):
+    """Parse a cell that holds a list of values — commas or newlines
+    both work as separators. Empty cell → empty list."""
+    if v is None:
+        return []
+    s = str(v)
+    parts = [p.strip() for chunk in s.replace(",", "\n").split("\n") for p in [chunk]]
+    return [p for p in parts if p]
 
 
 def _normalize_headers(header_row):
@@ -203,21 +238,31 @@ def parse_products_workbook(file_bytes):
         out.append(
             {
                 "_row": idx,
+                # Product-level fields (taken from the first row for a
+                # given product name; later rows are ignored for these).
                 "name": _to_str(_cell(row, headers.get("name"))),
+                "client_product_code": _to_str(_cell(row, headers.get("client_product_code"))),
                 "category": _to_str(_cell(row, headers.get("category"))),
                 "subcategory": _to_str(_cell(row, headers.get("subcategory"))),
                 "description": _to_str(_cell(row, headers.get("description"))),
+                "brand": _to_str(_cell(row, headers.get("brand"))),
+                "unit": _to_str(_cell(row, headers.get("unit"))),
+                "images": _to_str_list(_cell(row, headers.get("images"))),
                 "base_price": _to_float(_cell(row, headers.get("base_price"))),
                 "discount_price": _to_float(_cell(row, headers.get("discount_price"))),
+                # Variant-level fields.
+                "variant_name": _to_str(_cell(row, headers.get("variant_name"))),
                 "variant_size": _to_str(_cell(row, headers.get("variant_size"))),
                 "variant_weight": _to_str(_cell(row, headers.get("variant_weight"))),
                 "variant_color": _to_str(_cell(row, headers.get("variant_color"))),
                 "variant_sku": _to_str(_cell(row, headers.get("variant_sku"))),
+                "variant_image": _to_str(_cell(row, headers.get("variant_image"))),
                 "variant_price": _to_float(_cell(row, headers.get("variant_price"))),
                 "variant_discount_price": _to_float(
                     _cell(row, headers.get("variant_discount_price"))
                 ),
                 "variant_stock": _to_int(_cell(row, headers.get("variant_stock"))),
+                "reorder_level": _to_int(_cell(row, headers.get("reorder_level"))),
             }
         )
     return out, None
@@ -305,14 +350,16 @@ def import_products(file_bytes):
             price = r["variant_price"] if r["variant_price"] is not None else base_price
             variants_payload.append(
                 {
+                    "name": r["variant_name"],
                     "size": r["variant_size"],
                     "weight": r["variant_weight"],
                     "color": r["variant_color"],
                     "sku": r["variant_sku"],
+                    "image": r["variant_image"],
                     "price": price,
                     "discount_price": r["variant_discount_price"],
                     "initial_stock": r["variant_stock"] or 0,
-                    "reorder_level": 0,
+                    "reorder_level": r["reorder_level"] or 0,
                 }
             )
 
@@ -324,18 +371,27 @@ def import_products(file_bytes):
             # Update product-level fields and append the new variants. We
             # deliberately do NOT drop variants absent from the sheet — bulk
             # upload is additive; explicit variant delete uses its own route.
-            ProductRepository.update(
-                existing["_id"],
-                {
-                    "subcategory_id": sub["_id"],
-                    "subcategory_name": sub["name"],
-                    "category_id": cat["_id"],
-                    "category_name": cat["name"],
-                    "description": head["description"],
-                    "base_price": base_price,
-                    "discount_price": head["discount_price"],
-                },
-            )
+            update_patch = {
+                "subcategory_id": sub["_id"],
+                "subcategory_name": sub["name"],
+                "category_id": cat["_id"],
+                "category_name": cat["name"],
+                "description": head["description"],
+                "base_price": base_price,
+                "discount_price": head["discount_price"],
+            }
+            # Only overwrite the new product-level fields when the sheet
+            # actually provided a value — an empty column shouldn't clobber
+            # whatever's already stored.
+            if head["client_product_code"]:
+                update_patch["client_product_code"] = head["client_product_code"]
+            if head["brand"]:
+                update_patch["brand"] = head["brand"]
+            if head["unit"]:
+                update_patch["unit"] = head["unit"]
+            if head["images"]:
+                update_patch["images"] = head["images"]
+            ProductRepository.update(existing["_id"], update_patch)
             for v in variants_payload:
                 _, seed = ProductRepository.add_variant(existing["_id"], v)
                 if seed:
@@ -363,6 +419,10 @@ def import_products(file_bytes):
                 base_price=base_price,
                 discount_price=head["discount_price"],
                 variants=variants_payload,
+                client_product_code=head["client_product_code"],
+                unit=head["unit"],
+                images=head["images"] or [],
+                brand=head["brand"],
             )
             for seed in p.get("_inventory_seed") or []:
                 InventoryRepository.create(

@@ -320,7 +320,37 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
 { "delta": 200, "reason": "Initial receipt from supplier" }</code></pre>
 
 <h3>3b) Or bulk-upload from Excel</h3>
-<p>Headers accepted (case-insensitive): <code>name</code>, <code>category</code>, <code>subcategory</code>, <code>description</code>, <code>base_price</code>, <code>discount_price</code>, <code>variant_size</code>, <code>variant_weight</code>, <code>variant_color</code>, <code>variant_sku</code>, <code>variant_price</code>, <code>variant_discount_price</code>, <code>variant_stock</code>.</p>
+<p>Headers accepted (case-insensitive; spaces and underscores both work). Rows sharing the same <code>Product Name</code> merge into one product with N variants. Product-level fields come from the first row for a product name; later rows only supply variant-level fields.</p>
+
+<h4>Product-level columns</h4>
+<table>
+  <tr><th>Column</th><th>Required?</th><th>Notes</th></tr>
+  <tr><td><code>Product Name</code> (alias <code>name</code>)</td><td><strong>yes</strong></td><td>Merge key.</td></tr>
+  <tr><td><code>Client Product Code</code> (alias <code>Product Code</code>)</td><td>no</td><td>Client-facing identifier, separate from our system-minted <code>PRD-XXXX</code>.</td></tr>
+  <tr><td><code>Category</code></td><td><strong>yes</strong></td><td>Must exist; resolved by name.</td></tr>
+  <tr><td><code>Subcategory</code></td><td><strong>yes</strong></td><td>Must exist under that category.</td></tr>
+  <tr><td><code>Description</code></td><td>no</td><td></td></tr>
+  <tr><td><code>Brand</code></td><td>no</td><td></td></tr>
+  <tr><td><code>Unit</code></td><td>no</td><td>Unit of sale (e.g. <code>kg</code>, <code>pcs</code>, <code>box</code>).</td></tr>
+  <tr><td><code>Base Price</code></td><td>one of Base Price / Variant Price</td><td>Falls back to Variant Price if absent.</td></tr>
+  <tr><td><code>Discount Price</code></td><td>no</td><td>Product-level default discount.</td></tr>
+  <tr><td><code>Images</code></td><td>no</td><td>Comma-separated or newline-separated URLs.</td></tr>
+</table>
+
+<h4>Variant-level columns</h4>
+<table>
+  <tr><th>Column</th><th>Notes</th></tr>
+  <tr><td><code>Variant Name</code></td><td>Display label. Used as the primary label in reports/UIs if set; falls back to size/weight/color otherwise.</td></tr>
+  <tr><td><code>Size</code> (alias <code>Variant Size</code>)</td><td></td></tr>
+  <tr><td><code>Weight</code> (alias <code>Variant Weight</code>)</td><td></td></tr>
+  <tr><td><code>Color</code> (alias <code>Variant Color</code>)</td><td></td></tr>
+  <tr><td><code>SKU</code> (alias <code>Variant SKU</code>)</td><td></td></tr>
+  <tr><td><code>Variant Image</code></td><td>Single URL, per-variant.</td></tr>
+  <tr><td><code>Variant Price</code></td><td>Falls back to <code>Base Price</code> if absent.</td></tr>
+  <tr><td><code>Variant Discount Price</code></td><td></td></tr>
+  <tr><td><code>Opening Stock</code> (alias <code>Variant Stock</code>, <code>Stock</code>)</td><td>Written to the variant's inventory row as the opening on-hand.</td></tr>
+  <tr><td><code>Reorder Level</code></td><td>Written to the inventory row for low-stock alerts.</td></tr>
+</table>
 <p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>category</code> AND <code>subcategory</code> are <strong>required</strong> — the sheet resolves them by name (case-insensitive on subcategory) and rejects rows referencing unknown ones. Categories and subcategories must exist beforehand (create them via the API before uploading).</p>
 
 <h3>3c) Set opening stock / reorder level (office)</h3>
