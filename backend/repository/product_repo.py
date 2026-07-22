@@ -9,6 +9,8 @@ from repository.counter_repo import next_product_code, variant_code
 
 
 def variant_label(v):
+    if v.get("name"):
+        return v["name"]
     parts = [p for p in (v.get("size"), v.get("weight"), v.get("color")) if p]
     if v.get("sku"):
         parts.append(f"SKU {v['sku']}")
@@ -16,10 +18,6 @@ def variant_label(v):
 
 
 def _serialize_variants(variants, *, product_code, start_seq):
-    """Persist only variant-identity fields. Stock and reserved counts live
-    in the inventory collection — they're intentionally absent here. Each
-    variant is assigned a per-product code like PRD-0042-V03 and starts
-    active with an empty price history."""
     out = []
     for i, v in enumerate(variants):
         out.append(
@@ -28,10 +26,12 @@ def _serialize_variants(variants, *, product_code, start_seq):
                 "code": variant_code(product_code, start_seq + i),
                 "seq": start_seq + i,
                 "is_active": True,
+                "name": v.get("name"),
                 "size": v.get("size"),
                 "weight": v.get("weight"),
                 "color": v.get("color"),
                 "sku": v.get("sku"),
+                "image": v.get("image"),
                 "price": float(v["price"]),
                 "discount_price": (
                     float(v["discount_price"]) if v.get("discount_price") is not None else None
@@ -43,18 +43,17 @@ def _serialize_variants(variants, *, product_code, start_seq):
 
 
 def _hydrate_variants(variants):
-    """Turn stored variant docs into API-shaped dicts. Live inventory is
-    merged in by the route layer via _with_inventory to avoid an import
-    cycle (inventory_repo -> product_repo)."""
     return [
         {
             "id": str(v["_id"]),
             "code": v.get("code"),
             "is_active": v.get("is_active", True),
+            "name": v.get("name"),
             "size": v.get("size"),
             "weight": v.get("weight"),
             "color": v.get("color"),
             "sku": v.get("sku"),
+            "image": v.get("image"),
             "price": v["price"],
             "discount_price": v.get("discount_price"),
             "price_history": v.get("price_history") or [],
@@ -134,6 +133,9 @@ class ProductRepository:
         base_price,
         discount_price,
         variants,
+        client_product_code=None,
+        unit=None,
+        images=None,
         tags=None,
         brand=None,
         barcode=None,
@@ -148,6 +150,7 @@ class ProductRepository:
         serialized = _serialize_variants(variants, product_code=product_code, start_seq=1)
         doc = {
             "code": product_code,
+            "client_product_code": client_product_code,
             "next_variant_seq": len(serialized) + 1,
             "is_active": True,
             "name": name,
@@ -156,6 +159,8 @@ class ProductRepository:
             "category_id": category_id,
             "category_name": category_name,
             "description": description,
+            "unit": unit,
+            "images": list(images or []),
             "base_price": float(base_price),
             "discount_price": (
                 float(discount_price) if discount_price is not None else None

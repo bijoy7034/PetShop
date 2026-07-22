@@ -4,10 +4,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class VariantCreate(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
     size: str | None = Field(default=None, max_length=60)
     weight: str | None = Field(default=None, max_length=60)
     color: str | None = Field(default=None, max_length=60)
     sku: str | None = Field(default=None, max_length=60)
+    image: str | None = Field(default=None, max_length=1000)
     price: float = Field(ge=0)
     discount_price: float | None = Field(default=None, ge=0)
     initial_stock: int = Field(default=0, ge=0)
@@ -20,10 +22,12 @@ class VariantUpdate(BaseModel):
     `discount_price` changes, the previous values are pushed to the
     variant's price_history[] before the new values are set, with the
     optional `reason` recorded on the history event."""
+    name: str | None = Field(default=None, max_length=200)
     size: str | None = Field(default=None, max_length=60)
     weight: str | None = Field(default=None, max_length=60)
     color: str | None = Field(default=None, max_length=60)
     sku: str | None = Field(default=None, max_length=60)
+    image: str | None = Field(default=None, max_length=1000)
     price: float | None = Field(default=None, ge=0)
     discount_price: float | None = Field(default=None, ge=0)
     reason: str | None = Field(default=None, max_length=200)
@@ -43,10 +47,12 @@ class Variant(BaseModel):
     id: str
     code: str | None = None
     is_active: bool = True
+    name: str | None = None
     size: str | None = None
     weight: str | None = None
     color: str | None = None
     sku: str | None = None
+    image: str | None = None
     price: float
     discount_price: float | None = None
     price_history: list[PriceHistoryEvent] = []
@@ -78,6 +84,11 @@ class ProductCreate(BaseModel):
     base_price: float = Field(ge=0)
     discount_price: float | None = Field(default=None, ge=0)
     option_sets: OptionSet | None = None
+    # Client-facing identifier (their own code, distinct from our
+    # system-minted PRD-XXXX) and unit of sale (kg, pcs, box, ...).
+    client_product_code: str | None = Field(default=None, max_length=120)
+    unit: str | None = Field(default=None, max_length=32)
+    images: list[str] = []
     # Future-scalability fields — stored but not yet wired into behavior.
     tags: list[str] = []
     brand: str | None = Field(default=None, max_length=120)
@@ -97,6 +108,9 @@ class ProductUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
     base_price: float | None = Field(default=None, ge=0)
     discount_price: float | None = Field(default=None, ge=0)
+    client_product_code: str | None = Field(default=None, max_length=120)
+    unit: str | None = Field(default=None, max_length=32)
+    images: list[str] | None = None
     tags: list[str] | None = None
     brand: str | None = Field(default=None, max_length=120)
     barcode: str | None = Field(default=None, max_length=64)
@@ -112,6 +126,7 @@ class Product(BaseModel):
 
     id: str = Field(alias="_id")
     code: str | None = None
+    client_product_code: str | None = None
     is_active: bool = True
     name: str
     subcategory_id: str
@@ -119,6 +134,8 @@ class Product(BaseModel):
     category_id: str
     category_name: str | None = None
     description: str | None = None
+    unit: str | None = None
+    images: list[str] = []
     base_price: float
     discount_price: float | None = None
     variants: list[Variant] = []

@@ -374,7 +374,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Pedigree Adult Chicken & Vegetables\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"description\": \"Adult dog food with real chicken and vegetables.\",\n  \"base_price\": 350,\n  \"option_sets\": {\n    \"size\": [\"1kg\", \"3kg\", \"10kg\"]\n  }\n}"
+              "raw": "{\n  \"name\": \"Pedigree Adult Chicken & Vegetables\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"description\": \"Adult dog food with real chicken and vegetables.\",\n  \"client_product_code\": \"CLI-PED-CHK\",\n  \"brand\": \"Mars Pet Care\",\n  \"unit\": \"kg\",\n  \"images\": [\n    \"https://cdn.example.com/pedigree/front.jpg\",\n    \"https://cdn.example.com/pedigree/back.jpg\"\n  ],\n  \"base_price\": 350,\n  \"option_sets\": {\n    \"size\": [\"1kg\", \"3kg\", \"10kg\"]\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/products",
@@ -404,7 +404,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"sku\": \"PED-CHK-1K\",\n  \"price\": 350\n}"
+              "raw": "{\n  \"name\": \"1kg Pack\",\n  \"sku\": \"PED-CHK-1K\",\n  \"image\": \"https://cdn.example.com/pedigree/1kg.jpg\",\n  \"price\": 350\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}",
@@ -1198,7 +1198,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"name\": \"Kong Classic Rubber Toy\",\n  \"subcategory_id\": \"{{subcategory_chew_id}}\",\n  \"base_price\": 550,\n  \"option_sets\": {\n    \"size\": [\"Small\", \"Medium\", \"Large\"],\n    \"color\": [\"Red\", \"Blue\"]\n  }\n}"
+                  "raw": "{\n  \"name\": \"Kong Classic Rubber Toy\",\n  \"subcategory_id\": \"{{subcategory_chew_id}}\",\n  \"client_product_code\": \"CLI-KONG-CLS\",\n  \"brand\": \"Kong Company\",\n  \"unit\": \"pcs\",\n  \"images\": [\"https://cdn.example.com/kong-classic.jpg\"],\n  \"base_price\": 550,\n  \"option_sets\": {\n    \"size\": [\"Small\", \"Medium\", \"Large\"],\n    \"color\": [\"Red\", \"Blue\"]\n  }\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/products",
@@ -1343,7 +1343,8 @@
                   "raw": "{{base_url}}/api/products/bulk-upload",
                   "host": ["{{base_url}}"],
                   "path": ["api", "products", "bulk-upload"]
-                }
+                },
+                "description": "Accepted columns (case-insensitive):\n\nProduct-level (first row per product name wins):\n  Product Name           (required, merge key)\n  Client Product Code    (optional)\n  Category               (required, must exist)\n  Subcategory            (required, must exist)\n  Description            (optional)\n  Brand                  (optional)\n  Unit                   (optional; kg, pcs, box, ...)\n  Base Price             (required OR variant_price)\n  Discount Price         (optional)\n  Images                 (comma-separated URLs)\n\nVariant-level (one row per variant):\n  Variant Name           (display label, e.g. '1kg Combo Pack')\n  Size / Weight / Color\n  SKU\n  Variant Image          (URL)\n  Variant Price          (falls back to Base Price)\n  Variant Discount Price\n  Opening Stock          (writes to inventory)\n  Reorder Level          (writes to inventory)\n\nMax 5MB .xlsx or .xlsm."
               }
             }
           ]
