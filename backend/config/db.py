@@ -44,6 +44,10 @@ class MongoManager:
         from repository.order_repo import OrderRepository
         from repository.product_repo import ProductRepository
         from repository.rep_target_repo import RepTargetRepository
+        from repository.sales_achievement_progress_repo import (
+            SalesAchievementProgressRepository,
+        )
+        from repository.sales_achievement_repo import SalesAchievementRepository
         from repository.session_repo import SessionRepository
         from repository.store_repo import StoreRepository
         from repository.subcategory_repo import SubcategoryRepository
@@ -61,9 +65,12 @@ class MongoManager:
         VisitRepository.ensure_indexes()
         OrderRepository.ensure_indexes()
         RepTargetRepository.ensure_indexes()
+        SalesAchievementRepository.ensure_indexes()
+        SalesAchievementProgressRepository.ensure_indexes()
         logger.info(
             "Indexes ensured: users, sessions, audit_log, categories, "
-            "subcategories, products, inventory, stores, visits, orders, rep_targets"
+            "subcategories, products, inventory, stores, visits, orders, "
+            "rep_targets, sales_achievements, sales_achievement_progress"
         )
 
     def ping(self):

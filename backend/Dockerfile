@@ -22,4 +22,10 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# WORKERS defaults to 2 — override at runtime if you have more CPU headroom
+# (rule of thumb: 2 * cores + 1 for I/O-bound workloads like this). The
+# app is stateless across workers (session state lives in Mongo + JWT
+# cookies), so scaling out is safe.
+ENV WORKERS=4
+
+CMD ["sh", "-c", "uv run uvicorn app:app --host 0.0.0.0 --port 8000 --workers ${WORKERS} --proxy-headers --forwarded-allow-ips '*'"]

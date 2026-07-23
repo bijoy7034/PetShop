@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     VISITS_COLL: str = "visits"
     ORDERS_COLL: str = "orders"
     REP_TARGETS_COLL: str = "rep_targets"
+    SALES_ACHIEVEMENTS_COLL: str = "sales_achievements"
+    SALES_ACHIEVEMENT_PROGRESS_COLL: str = "sales_achievement_progress"
     COUNTERS_COLL: str = "_counters"
 
     # Attendance geo-fence radius in metres. Sales rep must be within this

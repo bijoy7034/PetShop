@@ -11,6 +11,7 @@ class ResourceType(StrEnum):
     VISIT = "visit"
     ORDER = "order"
     REP_TARGET = "rep_target"
+    ACHIEVEMENT = "achievement"
 
 
 class AuditAction(StrEnum):
@@ -88,3 +89,9 @@ class AuditAction(StrEnum):
     REP_TARGET_CREATE = "rep_target.create"
     REP_TARGET_UPDATE = "rep_target.update"
     REP_TARGET_DELETE = "rep_target.delete"
+
+    # sales achievements (gamification)
+    ACHIEVEMENT_CREATE = "achievement.create"
+    ACHIEVEMENT_UPDATE = "achievement.update"
+    ACHIEVEMENT_DELETE = "achievement.delete"
+    ACHIEVEMENT_CLAIM = "achievement.claim"
