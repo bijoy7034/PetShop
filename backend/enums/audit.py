@@ -10,6 +10,7 @@ class ResourceType(StrEnum):
     STORE = "store"
     VISIT = "visit"
     ORDER = "order"
+    REP_TARGET = "rep_target"
 
 
 class AuditAction(StrEnum):
@@ -82,3 +83,8 @@ class AuditAction(StrEnum):
     ORDER_DISPATCH = "order.dispatch"
     ORDER_DELIVER = "order.deliver"
     ORDER_PAYMENT_RECORDED = "order.payment_recorded"
+
+    # sales-rep monthly targets
+    REP_TARGET_CREATE = "rep_target.create"
+    REP_TARGET_UPDATE = "rep_target.update"
+    REP_TARGET_DELETE = "rep_target.delete"

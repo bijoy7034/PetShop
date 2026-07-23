@@ -4,6 +4,7 @@ from repository.counter_repo import CounterRepository
 from repository.inventory_repo import InventoryRepository
 from repository.order_repo import OrderRepository
 from repository.product_repo import ProductRepository
+from repository.rep_target_repo import RepTargetRepository
 from repository.session_repo import SessionRepository
 from repository.store_repo import StoreRepository
 from repository.subcategory_repo import SubcategoryRepository
@@ -17,6 +18,7 @@ __all__ = [
     "InventoryRepository",
     "OrderRepository",
     "ProductRepository",
+    "RepTargetRepository",
     "SessionRepository",
     "StoreRepository",
     "SubcategoryRepository",

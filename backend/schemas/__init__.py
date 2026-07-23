@@ -51,6 +51,13 @@ from schemas.product import (
     VariantCreate,
     VariantUpdate,
 )
+from schemas.rep_target import (
+    CategoryTarget,
+    RepTarget,
+    RepTargetCreate,
+    RepTargetListResponse,
+    RepTargetUpdate,
+)
 from schemas.store import (
     ContactPerson,
     GeoPoint,
@@ -114,6 +121,11 @@ __all__ = [
     "Variant",
     "VariantCreate",
     "VariantUpdate",
+    "CategoryTarget",
+    "RepTarget",
+    "RepTargetCreate",
+    "RepTargetListResponse",
+    "RepTargetUpdate",
     "ContactPerson",
     "GeoPoint",
     "Store",
