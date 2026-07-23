@@ -402,7 +402,11 @@ class ProductRepository:
             return None
         doc = ProductRepository._coll().find_one(
             {"_id": oid, "variants._id": void},
-            {"name": 1, "code": 1, "is_active": 1, "variants.$": 1},
+            {
+                "name": 1, "code": 1, "is_active": 1, "variants.$": 1,
+                "category_id": 1, "category_name": 1,
+                "subcategory_id": 1, "subcategory_name": 1,
+            },
         )
         if not doc or not doc.get("variants"):
             return None
@@ -412,6 +416,10 @@ class ProductRepository:
             "product_code": doc.get("code"),
             "product_name": doc["name"],
             "product_active": doc.get("is_active", True),
+            "category_id": doc.get("category_id"),
+            "category_name": doc.get("category_name"),
+            "subcategory_id": doc.get("subcategory_id"),
+            "subcategory_name": doc.get("subcategory_name"),
             "variant_id": str(v["_id"]),
             "variant_code": v.get("code"),
             "variant_label": variant_label(v),

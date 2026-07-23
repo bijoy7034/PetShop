@@ -24,6 +24,12 @@ class OrderLine(BaseModel):
     product_id: str
     product_code: str | None = None
     product_name: str
+    # Denormalised at placement so category-wise analytics doesn't need
+    # to $lookup the products collection.
+    category_id: str | None = None
+    category_name: str | None = None
+    subcategory_id: str | None = None
+    subcategory_name: str | None = None
     variant_id: str
     variant_code: str | None = None
     variant_label: str | None = None

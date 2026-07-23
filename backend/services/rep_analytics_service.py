@@ -185,24 +185,58 @@ def monthly_trend(rep_id, year, *, rep_name=None):
 
 
 def leaderboard(*, from_dt=None, to_dt=None, sort="revenue", limit=100):
-    """Compute per-rep totals for the range across every active sales rep,
-    then sort by the chosen metric."""
+    """Cross-rep ranking. Two Mongo aggregations total, regardless of
+    how many reps exist:
+      1. group orders by sales_rep_id → revenue + order count
+      2. group visits by sales_rep_id → visit count + in-store / remote
+    Results merged in Python. Replaces the previous per-rep loop (N
+    round-trips → 2)."""
     reps = list(_users_coll().find(
         {"role": "sales_rep", "status": "active"},
         {"name": 1},
     ))
+    if not reps:
+        return []
+
+    orders_pipeline = [
+        {"$match": _order_match(None, from_dt, to_dt)},
+        {"$group": {
+            "_id": "$sales_rep_id",
+            "revenue": {"$sum": "$total"},
+            "orders": {"$sum": 1},
+        }},
+    ]
+    orders_by_rep = {
+        r["_id"]: r for r in _orders_coll().aggregate(orders_pipeline)
+    }
+
+    visits_pipeline = [
+        {"$match": _visit_match(None, from_dt, to_dt)},
+        {"$group": {
+            "_id": "$sales_rep_id",
+            "visits": {"$sum": 1},
+        }},
+    ]
+    visits_by_rep = {
+        r["_id"]: r for r in _visits_coll().aggregate(visits_pipeline)
+    }
+
     entries = []
     for r in reps:
         rid = str(r["_id"])
-        totals = _rep_totals(rid, from_dt, to_dt)
+        o = orders_by_rep.get(rid, {})
+        v = visits_by_rep.get(rid, {})
+        revenue = float(o.get("revenue") or 0)
+        orders = int(o.get("orders") or 0)
+        visits = int(v.get("visits") or 0)
         entries.append({
             "rep_id": rid,
             "rep_name": r.get("name"),
-            "revenue": totals["revenue"],
-            "orders": totals["orders"],
-            "visits": totals["visits"],
-            "conversion_rate": _ratio(totals["orders"], totals["visits"]),
-            "avg_order_value": _ratio(totals["revenue"], totals["orders"]),
+            "revenue": revenue,
+            "orders": orders,
+            "visits": visits,
+            "conversion_rate": _ratio(orders, visits),
+            "avg_order_value": _ratio(revenue, orders),
             "target": None,
             "target_achievement_pct": None,
         })
@@ -280,25 +314,16 @@ def target_achievement(rep_id, year, month, *, rep_name=None):
 
 
 def _revenue_by_category(rep_id, from_dt, to_dt):
-    """Sum line_total per category_id across the rep's orders in range."""
+    """Sum line_total per category_id across the rep's orders in range.
+    Uses the denormalised category_id on each order line — no $lookup
+    against the products collection. O(orders × lines) with an index
+    hit on (sales_rep_id, created_at)."""
     pipeline = [
         {"$match": _order_match(rep_id, from_dt, to_dt)},
         {"$unwind": "$lines"},
-        # Lines carry product_id + variant_id but not category_id — we join
-        # products to pull the category through. Products live in a
-        # separate collection so we $lookup on their id.
-        {"$lookup": {
-            "from": settings.PRODUCTS_COLL,
-            "let": {"pid": "$lines.product_id"},
-            "pipeline": [
-                {"$match": {"$expr": {"$eq": [{"$toString": "$_id"}, "$$pid"]}}},
-                {"$project": {"category_id": 1}},
-            ],
-            "as": "product",
-        }},
-        {"$unwind": {"path": "$product", "preserveNullAndEmptyArrays": True}},
+        {"$match": {"lines.category_id": {"$ne": None}}},
         {"$group": {
-            "_id": "$product.category_id",
+            "_id": "$lines.category_id",
             "revenue": {"$sum": "$lines.line_total"},
         }},
     ]
