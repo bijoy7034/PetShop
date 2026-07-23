@@ -174,6 +174,9 @@
     <li><a href="#stores">Stores</a></li>
     <li><a href="#visits">Visits</a></li>
     <li><a href="#orders">Orders</a></li>
+    <li><a href="#analytics">Analytics</a></li>
+    <li><a href="#rep-targets">Rep Targets</a></li>
+    <li><a href="#achievements">Achievements</a></li>
   </ul>
 
   <div class="group">Reference</div>
@@ -1035,6 +1038,217 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <pre><code>{ "amount": 3000, "method": "UPI", "notes": "UPI ref UPI/2026/A1B2" }</code></pre>
 </div>
 
+<h2 id="analytics">Analytics</h2>
+<p>Live aggregation over the existing orders + visits collections — no materialised rollup collection, no staleness. Only orders in <code>accepted / packing / out_for_delivery / delivered</code> count towards revenue (pending_admin_approval and cancelled are excluded).</p>
+
+<div class="callout">
+  <strong>Scale note.</strong> <code>OrderLine</code> denormalises <code>category_id</code>, <code>category_name</code>, <code>subcategory_id</code>, <code>subcategory_name</code> at placement time. Category-wise revenue is one indexed aggregation over orders — no <code>$lookup</code> against the products collection. The leaderboard is two aggregations total regardless of rep count (previously one round-trip per rep).
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/rep/{rep_id} <span class="role">any user</span></h4>
+  <p>Every metric — totals + ratios — over the given date range. Both <code>from</code> and <code>to</code> are optional; omitting both yields lifetime. Sales rep sees only their own; office/admin see any rep.</p>
+  <p class="label">Query</p>
+  <pre><code>from  (ISO datetime, optional)
+to    (ISO datetime, optional)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "rep_id": "66aabb...",
+  "rep_name": "Arjun (Field Rep)",
+  "range": { "from": null, "to": null },
+  "totals": {
+    "revenue": 125000.0,
+    "orders": 34,
+    "visits": 58,
+    "in_store_visits": 41,
+    "remote_visits": 17,
+    "unique_stores_visited": 22,
+    "repeat_visits": 36,
+    "avg_visit_duration_minutes": 28.5
+  },
+  "ratios": {
+    "conversion_rate": 0.5862,
+    "avg_order_value": 3676.47,
+    "orders_per_visit": 0.5862,
+    "revenue_per_visit": 2155.17,
+    "revenue_per_order": 3676.47,
+    "avg_order_value_per_visit": 2155.17,
+    "in_store_pct": 70.69,
+    "remote_pct": 29.31
+  }
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/rep/{rep_id}/monthly <span class="role">any user</span></h4>
+  <p>Trend view — <code>totals + ratios</code> per month for the given calendar year (12 entries).</p>
+  <p class="label">Query</p>
+  <pre><code>year  (2000-2100, required)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/rep/{rep_id}/target-achievement <span class="role">any user</span></h4>
+  <p>Overall + category-wise achievement for a specific month, joined against the <code>RepTarget</code> document for that month. Category breakdown is included only when the target doc has <code>category_targets</code>.</p>
+  <p class="label">Query</p>
+  <pre><code>year   (required)
+month  (1-12, required)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "rep_id": "66aabb...",
+  "rep_name": "Arjun (Field Rep)",
+  "year": 2026, "month": 7,
+  "monthly_target": 50000.0,
+  "current_achievement": 32500.0,
+  "percentage_achieved": 65.0,
+  "remaining_target": 17500.0,
+  "category_wise": [
+    { "category_id": "...", "category_name": "Dog Food", "target": 30000, "achieved": 25000, "percentage_achieved": 83.33, "remaining": 5000 },
+    { "category_id": "...", "category_name": "Toys",     "target": 20000, "achieved":  7500, "percentage_achieved": 37.5,  "remaining": 12500 }
+  ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/leaderboard <span class="role">office/admin</span></h4>
+  <p>Cross-rep ranking. Sales reps cannot call this endpoint. Some sort keys (<code>target_achievement_pct</code>, <code>monthly_revenue</code>, <code>monthly_orders</code>) require <code>year</code>+<code>month</code>; the route then joins each rep's row against their RepTarget.</p>
+  <p class="label">Query</p>
+  <pre><code>sort   revenue | orders | visits | conversion_rate | avg_order_value |
+       target_achievement_pct | monthly_revenue | monthly_orders   (default: revenue)
+range  current_week | current_month | custom (with from/to)         (optional)
+from   (ISO datetime, optional)
+to     (ISO datetime, optional)
+year   (required only when sort=target_achievement_pct)
+month  (required only when sort=target_achievement_pct)
+limit  1-500 (default 100)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "range": { "from": "2026-07-01T00:00:00Z", "to": "2026-07-31T23:59:59Z" },
+  "sort":  "revenue",
+  "items": [
+    { "rep_id": "...", "rep_name": "Arjun", "revenue": 32500, "orders": 18, "visits": 24, "conversion_rate": 0.75, "avg_order_value": 1805.55, "target": null, "target_achievement_pct": null },
+    { "rep_id": "...", "rep_name": "Neha",  "revenue": 12000, "orders":  8, "visits": 11, "conversion_rate": 0.7272, "avg_order_value": 1500.0, "target": null, "target_achievement_pct": null }
+  ]
+}</code></pre>
+</div>
+
+<h2 id="rep-targets">Rep Targets</h2>
+<p>Monthly per-rep revenue targets with optional category breakdown. Office/admin manage the doc; sales rep can list/get only their own. <code>(rep_id, year, month)</code> is unique — retry with PATCH if you get 409.</p>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/rep-targets <span class="role">any user</span></h4>
+  <p>Office/admin see all targets; sales rep sees only their own regardless of the <code>rep_id</code> filter.</p>
+  <p class="label">Query</p>
+  <pre><code>rep_id   (optional; office/admin only respected here)
+year     (optional)
+month    (1-12, optional)
+page, page_size</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/rep-targets/{target_id} <span class="role">any user</span></h4>
+  <p>Sales rep hitting someone else's target gets 404, not 403 (existence-hiding).</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/rep-targets <span class="role">office/admin</span></h4>
+  <p>Category IDs are validated and their names denormalised onto the target entry. Duplicate <code>category_id</code> within one doc is 400. <code>(rep_id, year, month)</code> collision is 409.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "rep_id": "66aabb...",
+  "year":   2026,
+  "month":  7,
+  "overall_target": 50000,
+  "category_targets": [
+    { "category_id": "{dog_food_id}", "target": 30000 },
+    { "category_id": "{toys_id}",     "target": 20000 }
+  ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/rep-targets/{target_id} <span class="role">office/admin</span></h4>
+  <p>Any field can be updated. If <code>category_targets</code> is present, the whole list is replaced (not merged) and re-validated.</p>
+  <pre><code>{ "overall_target": 60000, "category_targets": [ ... ] }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/rep-targets/{target_id} <span class="role">office/admin</span></h4>
+  <p>Removes the target doc. Historical analytics still work — target_achievement just returns <code>monthly_target: 0</code>, <code>percentage_achieved: 0</code>.</p>
+</div>
+
+<h2 id="achievements">Achievements</h2>
+<p>Sales achievements are gamified goals (revenue, orders, stores visited, conversion rate) with a reward. Office/admin manage the catalogue; every active sales rep has a per-achievement <code>SalesAchievementProgress</code> row that auto-hydrates when the rep hits <code>GET /mine</code>. Once <code>current_value ≥ target_value</code> the row flips to <code>completed</code> and the rep can <code>POST /claim</code> to mark it <code>claimed</code>.</p>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/achievements <span class="role">any user</span></h4>
+  <p>Browse the catalogue. Filter by <code>is_active</code> or <code>period</code>.</p>
+  <p class="label">Query</p>
+  <pre><code>is_active  true | false | omit
+period     daily | weekly | monthly | omit
+page, page_size</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/achievements/mine <span class="role">sales_rep only</span></h4>
+  <p>Sales rep's own progress. Auto-creates a progress row for every currently-active achievement (idempotent) so a newly-hired rep still sees the full board. <code>current_value</code> and <code>status</code> are recomputed from underlying orders/visits on every read — nothing is stale.</p>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "items": [
+    {
+      "_id": "...",
+      "achievement_id": "...",
+      "achievement_title": "July Revenue Hero",
+      "achievement_metric": "revenue_generated",
+      "reward": { "text": "2,000 bonus + team badge" },
+      "sales_rep_id": "...",
+      "sales_rep_name": "Arjun",
+      "current_value": 32500.0,
+      "target_value": 50000.0,
+      "status": "in_progress",
+      "completed_at": null,
+      "claimed_at": null,
+      "created_at": "...", "updated_at": "..."
+    }
+  ],
+  "total": 1
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/achievements/{achievement_id} <span class="role">any user</span></h4>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/achievements <span class="role">office/admin</span></h4>
+  <p>Refuses <code>end_date &lt; start_date</code>. On success, immediately auto-creates progress rows for every active sales rep so they'll see the new achievement on their next <code>/mine</code> call.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "title": "July Revenue Hero",
+  "description": "Generate 50,000 in revenue during July 2026",
+  "reward": { "text": "2,000 bonus + team badge", "image": null },
+  "period": "monthly",
+  "start_date": "2026-07-01T00:00:00Z",
+  "end_date":   "2026-07-31T23:59:59Z",
+  "target":  { "metric": "revenue_generated", "value": 50000 },
+  "is_active": true
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/achievements/{achievement_id} <span class="role">office/admin</span></h4>
+  <p>Any field can be updated. Changing <code>target.value</code> mid-period re-evaluates completion state on the next <code>/mine</code> read — a rep who was <code>completed</code> at the old target can drop back to <code>in_progress</code> if the target is raised (unless they already <code>claimed</code>).</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/achievements/{achievement_id}/claim <span class="role">sales_rep only</span></h4>
+  <p>Sales rep claims a completed achievement. Re-verifies <code>current_value ≥ target_value</code> at claim time (guards against stale-read racing). Refuses if the achievement is inactive, not yet completed, or already claimed.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/achievements/{achievement_id} <span class="role">office/admin</span></h4>
+  <p>Cascades — also deletes every per-rep progress row for this achievement.</p>
+</div>
+
 <!-- ========== REFERENCE ========== -->
 <h2 id="enums">Enums &amp; status</h2>
 
@@ -1095,6 +1309,31 @@ POST /api/orders/{order_id}/deliver</code></pre>
       <li>outcome: <code>order_placed</code> | <code>no_order</code></li>
     </ul>
   </div>
+  <div>
+    <h3>AchievementPeriod</h3>
+    <ul>
+      <li><code>daily</code></li>
+      <li><code>weekly</code></li>
+      <li><code>monthly</code></li>
+    </ul>
+  </div>
+  <div>
+    <h3>AchievementMetric</h3>
+    <ul>
+      <li><code>orders_completed</code></li>
+      <li><code>revenue_generated</code></li>
+      <li><code>stores_visited</code></li>
+      <li><code>conversion_rate</code> — <span class="muted">% (orders/visits × 100)</span></li>
+    </ul>
+  </div>
+  <div>
+    <h3>AchievementProgressStatus</h3>
+    <ul>
+      <li><code>in_progress</code></li>
+      <li><code>completed</code> — target met, not yet claimed</li>
+      <li><code>claimed</code> — rep clicked claim; terminal</li>
+    </ul>
+  </div>
 </div>
 
 <h3>Roles vs. write endpoints</h3>
@@ -1114,6 +1353,13 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <tr><td>Approve/reject pending_admin_approval order</td><td>✓</td><td></td><td></td></tr>
   <tr><td>Accept / delay / pack / dispatch / deliver</td><td>✓</td><td>✓</td><td></td></tr>
   <tr><td>Record payment</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>View own analytics</td><td>✓</td><td>✓</td><td>✓ (own only)</td></tr>
+  <tr><td>View any rep analytics · target-achievement · monthly</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Leaderboard</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>Rep targets CRUD</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>List rep targets</td><td>✓</td><td>✓</td><td>✓ (own only)</td></tr>
+  <tr><td>Achievements catalogue CRUD</td><td>✓</td><td>✓</td><td></td></tr>
+  <tr><td>View own achievement progress (/mine) · claim</td><td></td><td></td><td>✓</td></tr>
 </table>
 
 <h2 id="errors">Errors</h2>

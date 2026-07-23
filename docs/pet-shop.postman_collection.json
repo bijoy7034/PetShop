@@ -50,6 +50,8 @@
     { "key": "inventory_id", "value": "", "type": "string" },
     { "key": "store_id", "value": "", "type": "string" },
     { "key": "order_id", "value": "", "type": "string" },
+    { "key": "rep_target_id", "value": "", "type": "string" },
+    { "key": "achievement_id", "value": "", "type": "string" },
     { "key": "store_lat", "value": "12.9716", "type": "string" },
     { "key": "store_lng", "value": "77.5946", "type": "string" }
   ],
@@ -1870,6 +1872,328 @@
                   "raw": "{{base_url}}/api/orders",
                   "host": ["{{base_url}}"],
                   "path": ["api", "orders"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Analytics",
+          "description": "Rep analytics + leaderboard. Sales rep can view their own; office/admin can view any rep. Leaderboard is office/admin only.",
+          "item": [
+            {
+              "name": "Rep analytics — lifetime (omit from/to)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/rep/{{rep_user_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "rep", "{{rep_user_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Rep analytics — custom date range",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/rep/{{rep_user_id}}?from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "rep", "{{rep_user_id}}"],
+                  "query": [
+                    { "key": "from", "value": "2026-01-01T00:00:00Z" },
+                    { "key": "to", "value": "2026-12-31T23:59:59Z" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Rep monthly trend for a calendar year",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/rep/{{rep_user_id}}/monthly?year=2026",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "rep", "{{rep_user_id}}", "monthly"],
+                  "query": [{ "key": "year", "value": "2026" }]
+                }
+              }
+            },
+            {
+              "name": "Rep target achievement (overall + category-wise)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/rep/{{rep_user_id}}/target-achievement?year=2026&month=7",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "rep", "{{rep_user_id}}", "target-achievement"],
+                  "query": [
+                    { "key": "year", "value": "2026" },
+                    { "key": "month", "value": "7" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Leaderboard — default sort=revenue (office/admin only)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/leaderboard?sort=revenue&limit=100",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "leaderboard"],
+                  "query": [
+                    { "key": "sort", "value": "revenue" },
+                    { "key": "limit", "value": "100" },
+                    { "key": "range", "value": "current_month", "disabled": true },
+                    { "key": "from", "value": "2026-07-01T00:00:00Z", "disabled": true },
+                    { "key": "to", "value": "2026-07-31T23:59:59Z", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Leaderboard sorted by target-achievement % (needs year+month)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/leaderboard?sort=target_achievement_pct&year=2026&month=7",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "leaderboard"],
+                  "query": [
+                    { "key": "sort", "value": "target_achievement_pct" },
+                    { "key": "year", "value": "2026" },
+                    { "key": "month", "value": "7" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rep Targets",
+          "description": "Monthly per-rep targets (with optional category breakdown). Office/admin create + edit; sales rep can only read their own.",
+          "item": [
+            {
+              "name": "List rep targets (office sees all; rep sees own)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/rep-targets?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "rep-targets"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "rep_id", "value": "{{rep_user_id}}", "disabled": true },
+                    { "key": "year", "value": "2026", "disabled": true },
+                    { "key": "month", "value": "7", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get one rep target",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/rep-targets/{{rep_target_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "rep-targets", "{{rep_target_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Create rep target for a month (with category breakdown)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "  pm.collectionVariables.set('rep_target_id', pm.response.json()._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"rep_id\": \"{{rep_user_id}}\",\n  \"year\": 2026,\n  \"month\": 7,\n  \"overall_target\": 50000,\n  \"category_targets\": [\n    { \"category_id\": \"{{category_dog_id}}\", \"target\": 30000 },\n    { \"category_id\": \"{{category_toys_id}}\", \"target\": 20000 }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/rep-targets",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "rep-targets"]
+                }
+              }
+            },
+            {
+              "name": "Update rep target (bump overall, replace category list)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"overall_target\": 60000,\n  \"category_targets\": [\n    { \"category_id\": \"{{category_dog_id}}\", \"target\": 40000 },\n    { \"category_id\": \"{{category_toys_id}}\", \"target\": 20000 }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/rep-targets/{{rep_target_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "rep-targets", "{{rep_target_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Delete rep target",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/rep-targets/{{rep_target_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "rep-targets", "{{rep_target_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Achievements",
+          "description": "Sales achievements catalogue + per-rep progress. Office/admin manage the catalogue; sales rep views their own progress via /mine and can /claim once COMPLETED.",
+          "item": [
+            {
+              "name": "List achievements (any user)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements?is_active=true&page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements"],
+                  "query": [
+                    { "key": "is_active", "value": "true" },
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "period", "value": "monthly", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "My achievements (sales rep only) — auto-hydrates progress rows",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/mine",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "mine"]
+                }
+              }
+            },
+            {
+              "name": "Get achievement",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/{{achievement_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "{{achievement_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Create achievement (office/admin)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "  pm.collectionVariables.set('achievement_id', pm.response.json()._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"July Revenue Hero\",\n  \"description\": \"Generate 50,000 in revenue during July 2026\",\n  \"reward\": { \"text\": \"2,000 bonus + team badge\" },\n  \"period\": \"monthly\",\n  \"start_date\": \"2026-07-01T00:00:00Z\",\n  \"end_date\": \"2026-07-31T23:59:59Z\",\n  \"target\": { \"metric\": \"revenue_generated\", \"value\": 50000 },\n  \"is_active\": true\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/achievements",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements"]
+                }
+              }
+            },
+            {
+              "name": "Update achievement (bump target)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"description\": \"Bumped target to 75k\",\n  \"target\": { \"metric\": \"revenue_generated\", \"value\": 75000 }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/{{achievement_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "{{achievement_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Claim an achievement (sales rep) — must be COMPLETED",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/{{achievement_id}}/claim",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "{{achievement_id}}", "claim"]
+                }
+              }
+            },
+            {
+              "name": "Delete achievement (removes per-rep progress rows too)",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/{{achievement_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "{{achievement_id}}"]
                 }
               }
             }
