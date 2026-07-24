@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = ""
     ADMIN_NAME: str = ""
 
+    # Cloudflare R2 (S3-compatible). Bucket must have public access enabled
+    # via r2.dev subdomain, and R2_PUBLIC_BASE_URL set to that prefix.
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+    R2_ENDPOINT_URL: str = ""
+    R2_PUBLIC_BASE_URL: str = ""
+    R2_MAX_IMAGE_BYTES: int = 5 * 1024 * 1024
+
 
 settings = Settings()
 logger.info(f"Loaded settings: MODE={settings.MODE}, DB_NAME={settings.DB_NAME}")

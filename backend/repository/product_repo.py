@@ -391,6 +391,48 @@ class ProductRepository:
         return ProductRepository.by_id(product_id)
 
     @staticmethod
+    def append_product_image(product_id, url):
+        oid = oid_or_none(product_id)
+        if oid is None:
+            return None
+        ProductRepository._coll().update_one(
+            {"_id": oid},
+            {"$push": {"images": url}, "$set": {"updated_at": now_utc()}},
+        )
+        return ProductRepository.by_id(product_id)
+
+    @staticmethod
+    def remove_product_image(product_id, url):
+        oid = oid_or_none(product_id)
+        if oid is None:
+            return None
+        ProductRepository._coll().update_one(
+            {"_id": oid},
+            {"$pull": {"images": url}, "$set": {"updated_at": now_utc()}},
+        )
+        return ProductRepository.by_id(product_id)
+
+    @staticmethod
+    def set_variant_image(product_id, variant_id, url):
+        """`url` may be None to clear the variant image, or a string to set it."""
+        oid = oid_or_none(product_id)
+        void = oid_or_none(variant_id)
+        if oid is None or void is None:
+            return None
+        update = (
+            {"$set": {"variants.$.image": url, "updated_at": now_utc()}}
+            if url is not None
+            else {
+                "$unset": {"variants.$.image": ""},
+                "$set": {"updated_at": now_utc()},
+            }
+        )
+        ProductRepository._coll().update_one(
+            {"_id": oid, "variants._id": void}, update
+        )
+        return ProductRepository.by_id(product_id)
+
+    @staticmethod
     def get_variant(product_id, variant_id):
         """Identity + price for a variant. Also returns is_active flags on
         both the product and the variant so callers (order placement)

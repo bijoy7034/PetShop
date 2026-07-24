@@ -49,6 +49,10 @@ class AuditAction(StrEnum):
     VARIANT_UPDATE = "product.variant.update"
     VARIANT_DELETE = "product.variant.delete"
     VARIANT_STOCK_ADJUST = "product.variant.stock_adjust"
+    PRODUCT_IMAGE_UPLOAD = "product.image.upload"
+    PRODUCT_IMAGE_DELETE = "product.image.delete"
+    VARIANT_IMAGE_UPLOAD = "product.variant.image.upload"
+    VARIANT_IMAGE_DELETE = "product.variant.image.delete"
 
     # inventory (per-variant stock ledger)
     INVENTORY_ADJUST = "inventory.adjust"

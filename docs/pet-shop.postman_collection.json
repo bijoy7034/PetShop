@@ -1878,6 +1878,79 @@
           ]
         },
         {
+          "name": "Images (R2)",
+          "description": "Product + variant image uploads to Cloudflare R2. Each upload is one file (multipart/form-data field 'file'). Requires the six R2_* env vars set in backend/.env; else endpoints return 503.",
+          "item": [
+            {
+              "name": "Upload product image (append to images[])",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "file", "type": "file", "src": [] }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/images",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "images"]
+                }
+              }
+            },
+            {
+              "name": "Delete product image (removes from images[] + R2)",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{ \"url\": \"https://pub-xxxx.r2.dev/products/PRD-0001/<hash>.jpg\" }"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/images",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "images"]
+                }
+              }
+            },
+            {
+              "name": "Upload variant image (replaces existing; prev R2 object deleted)",
+              "request": {
+                "method": "PUT",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "file", "type": "file", "src": [] }
+                  ]
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}/image",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}", "image"]
+                }
+              }
+            },
+            {
+              "name": "Delete variant image (clears field + R2 object)",
+              "request": {
+                "method": "DELETE",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/products/{{product_id}}/variants/{{variant_id}}/image",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "products", "{{product_id}}", "variants", "{{variant_id}}", "image"]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Analytics",
           "description": "Rep analytics + leaderboard. Sales rep can view their own; office/admin can view any rep. Leaderboard is office/admin only.",
           "item": [

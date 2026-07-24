@@ -1,5 +1,6 @@
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     File,
     HTTPException,
@@ -9,6 +10,7 @@ from fastapi import (
     status,
 )
 
+from config.config import settings
 from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_any_user, require_office
 from repository.category_repo import CategoryRepository
@@ -27,6 +29,7 @@ from schemas.product import (
 )
 from services.audit_service import record
 from services.product_service import expand_option_sets, import_products
+from utils import r2_storage
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -458,3 +461,198 @@ async def bulk_upload(
         request=request,
     )
     return BulkUploadResponse(**summary)
+
+
+# --------- Image uploads (Cloudflare R2) ---------
+
+def _read_image(file):
+    """Enforce mime type + size on an incoming image UploadFile. Returns
+    the raw bytes if valid; raises 400 otherwise."""
+    if not r2_storage.is_allowed_image(file.content_type):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unsupported image type '{file.content_type}'. "
+            f"Allowed: image/jpeg, image/png, image/webp, image/gif.",
+        )
+    return file
+
+
+async def _read_and_validate(file):
+    data = await file.read()
+    if len(data) > settings.R2_MAX_IMAGE_BYTES:
+        mb = settings.R2_MAX_IMAGE_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Image too large. Max is {mb} MB.",
+        )
+    return data
+
+
+@router.post("/{product_id}/images", response_model=Product)
+async def upload_product_image(
+    product_id: str,
+    request: Request,
+    current=Depends(require_office),
+    file: UploadFile = File(...),
+):
+    """Upload one image to R2 and append its public URL to the product's
+    images[]. Multi-image is achieved by hitting this endpoint N times."""
+    product = ProductRepository.by_id(product_id)
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    _read_image(file)
+    data = await _read_and_validate(file)
+
+    try:
+        uploaded = r2_storage.upload_image(
+            key_prefix=f"products/{product.get('code') or product_id}",
+            data=data,
+            content_type=file.content_type,
+            filename=file.filename,
+        )
+    except r2_storage.R2NotConfiguredError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+
+    updated = ProductRepository.append_product_image(product_id, uploaded["url"])
+    record(
+        AuditAction.PRODUCT_IMAGE_UPLOAD,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        after={"url": uploaded["url"], "key": uploaded["key"]},
+        request=request,
+    )
+    return _with_inventory(updated)
+
+
+@router.delete("/{product_id}/images", response_model=Product)
+async def delete_product_image(
+    product_id: str,
+    request: Request,
+    current=Depends(require_office),
+    url: str = Body(..., embed=True),
+):
+    """Remove a URL from the product's images[] and delete the object
+    from R2. Idempotent — missing URL is a no-op, missing R2 object is
+    swallowed."""
+    product = ProductRepository.by_id(product_id)
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    if url not in (product.get("images") or []):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "That URL is not attached to this product."
+        )
+
+    key = r2_storage.key_from_url(url)
+    if key:
+        try:
+            r2_storage.delete_image(key)
+        except r2_storage.R2NotConfiguredError:
+            pass  # If R2 isn't configured we can still detach the URL from Mongo.
+    updated = ProductRepository.remove_product_image(product_id, url)
+    record(
+        AuditAction.PRODUCT_IMAGE_DELETE,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        before={"url": url, "key": key},
+        request=request,
+    )
+    return _with_inventory(updated)
+
+
+@router.put("/{product_id}/variants/{variant_id}/image", response_model=Product)
+async def upload_variant_image(
+    product_id: str,
+    variant_id: str,
+    request: Request,
+    current=Depends(require_office),
+    file: UploadFile = File(...),
+):
+    """Upload one image and SET it as the variant's image (replaces any
+    existing one; the previous R2 object is deleted so we don't leak)."""
+    product = ProductRepository.by_id(product_id)
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    variant = next(
+        (v for v in product.get("variants") or [] if v["id"] == variant_id), None
+    )
+    if not variant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+
+    _read_image(file)
+    data = await _read_and_validate(file)
+    try:
+        uploaded = r2_storage.upload_image(
+            key_prefix=(
+                f"products/{product.get('code') or product_id}/variants/"
+                f"{variant.get('code') or variant_id}"
+            ),
+            data=data,
+            content_type=file.content_type,
+            filename=file.filename,
+        )
+    except r2_storage.R2NotConfiguredError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+
+    # Best-effort delete of the previous variant image to avoid orphans.
+    prev = variant.get("image")
+    if prev:
+        prev_key = r2_storage.key_from_url(prev)
+        if prev_key:
+            try:
+                r2_storage.delete_image(prev_key)
+            except Exception:
+                pass
+
+    updated = ProductRepository.set_variant_image(product_id, variant_id, uploaded["url"])
+    record(
+        AuditAction.VARIANT_IMAGE_UPLOAD,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        before={"variant_id": variant_id, "previous_url": prev},
+        after={"variant_id": variant_id, "url": uploaded["url"], "key": uploaded["key"]},
+        request=request,
+    )
+    return _with_inventory(updated)
+
+
+@router.delete("/{product_id}/variants/{variant_id}/image", response_model=Product)
+async def delete_variant_image(
+    product_id: str,
+    variant_id: str,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Clear a variant's image and delete the R2 object."""
+    product = ProductRepository.by_id(product_id)
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
+    variant = next(
+        (v for v in product.get("variants") or [] if v["id"] == variant_id), None
+    )
+    if not variant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Variant not found")
+    url = variant.get("image")
+    if not url:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "This variant has no image to delete."
+        )
+
+    key = r2_storage.key_from_url(url)
+    if key:
+        try:
+            r2_storage.delete_image(key)
+        except r2_storage.R2NotConfiguredError:
+            pass
+    updated = ProductRepository.set_variant_image(product_id, variant_id, None)
+    record(
+        AuditAction.VARIANT_IMAGE_DELETE,
+        ResourceType.PRODUCT,
+        resource_id=product_id,
+        actor=current["user"],
+        before={"variant_id": variant_id, "url": url, "key": key},
+        request=request,
+    )
+    return _with_inventory(updated)

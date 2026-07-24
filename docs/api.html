@@ -174,6 +174,7 @@
     <li><a href="#stores">Stores</a></li>
     <li><a href="#visits">Visits</a></li>
     <li><a href="#orders">Orders</a></li>
+    <li><a href="#images">Product images (R2)</a></li>
     <li><a href="#analytics">Analytics</a></li>
     <li><a href="#rep-targets">Rep Targets</a></li>
     <li><a href="#achievements">Achievements</a></li>
@@ -1036,6 +1037,48 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <p>Record a payment. Refuses <code>amount ≤ 0</code> and overpayment. Derives <code>payment_status</code> from the running total (pending / partially_paid / paid). Releases the paid amount from the store's <code>credit_used</code> (accounts receivable).</p>
   <p class="label">Body</p>
   <pre><code>{ "amount": 3000, "method": "UPI", "notes": "UPI ref UPI/2026/A1B2" }</code></pre>
+</div>
+
+<h2 id="images">Product images (Cloudflare R2)</h2>
+<p>Product and variant images are stored in a Cloudflare R2 bucket (S3-compatible) and served via the bucket's public URL. Each upload accepts one file at a time; call the endpoint N times to attach N images to a product.</p>
+
+<div class="callout">
+  <strong>Configuration.</strong> Set the six R2 env vars in <code>backend/.env</code>:
+  <pre>R2_ACCOUNT_ID, R2_ENDPOINT_URL, R2_BUCKET,
+R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_BASE_URL</pre>
+  Missing any of these turns image endpoints into <code>503 Service Unavailable</code> — no crash, and the rest of the app runs fine.
+</div>
+
+<p><strong>Constraints</strong> — mime type must be one of <code>image/jpeg | png | webp | gif</code>. Max file size is 5 MB (override via <code>R2_MAX_IMAGE_BYTES</code>). Object keys are <code>products/{product_code}/{uuid}.{ext}</code> for product images and <code>products/{product_code}/variants/{variant_code}/{uuid}.{ext}</code> for variant images — grouped per resource so R2's dashboard is browsable.</p>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/products/{product_id}/images <span class="role">office/admin</span></h4>
+  <p>Upload one image and append its public URL to <code>product.images[]</code>. <code>multipart/form-data</code>: single field <code>file</code>.</p>
+  <p class="label">cURL</p>
+  <pre><code>curl -b cookies.txt \
+     -H "X-CSRF-Token: $CSRF" \
+     -F "file=@/path/to/pedigree.jpg" \
+     -X POST http://localhost:8000/api/products/{product_id}/images</code></pre>
+  <p class="label">Response 200</p>
+  <p>Returns the full updated <code>Product</code> (with <code>images[]</code> having the new URL appended).</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/products/{product_id}/images <span class="role">office/admin</span></h4>
+  <p>Remove one URL from the product's <code>images[]</code> and delete the underlying R2 object. Body carries the URL (JSON).</p>
+  <p class="label">Body</p>
+  <pre><code>{ "url": "https://pub-xxxx.r2.dev/products/PRD-0001/&hellip;.jpg" }</code></pre>
+  <p>Idempotent on the R2 side (missing object is swallowed). Returns 404 if the URL isn't attached to this product.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PUT">PUT</span> /api/products/{product_id}/variants/{variant_id}/image <span class="role">office/admin</span></h4>
+  <p>Set (or replace) the image on one variant. The previous R2 object is deleted so we don't leak orphans on repeated uploads. <code>multipart/form-data</code>: single field <code>file</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method DELETE">DELETE</span> /api/products/{product_id}/variants/{variant_id}/image <span class="role">office/admin</span></h4>
+  <p>Clear the variant's image and delete the R2 object. Returns 404 if the variant has no image.</p>
 </div>
 
 <h2 id="analytics">Analytics</h2>
