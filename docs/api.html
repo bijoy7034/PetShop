@@ -212,7 +212,7 @@
   <tr><th>Base URL</th><td><code>http://localhost:8000/api</code></td></tr>
   <tr><th>Auth</th><td>HttpOnly cookie <code>petshop_access</code> (JWT) + <code>petshop_refresh</code> + <code>petshop_csrf</code></td></tr>
   <tr><th>CSRF header</th><td><code>X-CSRF-Token</code> (value = <code>petshop_csrf</code> cookie) — required on POST/PATCH/DELETE</td></tr>
-  <tr><th>Content type</th><td><code>application/json</code> (except <code>POST /products/bulk-upload</code>: <code>multipart/form-data</code>)</td></tr>
+  <tr><th>Content type</th><td><code>application/json</code>, except: <code>POST /products</code>, <code>POST /products/{id}/variants</code>, <code>POST /products/bulk-upload</code>, and every image endpoint use <code>multipart/form-data</code>.</td></tr>
   <tr><th>Roles</th><td><code>admin</code>, <code>office_staff</code>, <code>sales_rep</code></td></tr>
 </table>
 
@@ -630,9 +630,14 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products <span class="role">office</span></h4>
-  <p>Client sends <code>subcategory_id</code> (server denormalises the parent category) and an <code>option_sets</code> block. The server expands the Cartesian product across every non-empty axis and stores one <code>variants[]</code> entry per combination, each seeded at <code>price = base_price</code>, <code>stock = 0</code>, <code>sku = null</code>. Real prices, SKUs and stock are filled via the per-variant PATCH + adjust-stock endpoints after creation.</p>
+  <p>Client sends <code>subcategory_id</code> (server denormalises the parent category) and an <code>option_sets</code> block. The server expands the Cartesian product across every non-empty axis and stores one <code>variants[]</code> entry per combination, each seeded at <code>price = base_price</code>, <code>stock = 0</code>. If <code>sku</code> is null, the server falls back to the auto-minted variant code (<code>PRD-XXXX-VNN</code>). Real prices, SKUs and stock are filled via the per-variant PATCH + adjust-stock endpoints after creation.</p>
+  <p>Request is <code>multipart/form-data</code>:</p>
+  <ul>
+    <li><code>payload</code> — JSON string matching <code>ProductCreate</code></li>
+    <li><code>files</code> — zero or more image files (repeat the field to attach many). Each uploaded file is added to <code>images[]</code> after any URLs supplied in <code>payload.images</code>.</li>
+  </ul>
   <p class="label">Body</p>
-  <pre><code>{
+  <pre><code>payload={
   "name": "Kong Classic Rubber Toy",
   "subcategory_id": "{sub_id}",
   "description": "Chew toy",
@@ -643,12 +648,15 @@ POST /api/orders/{order_id}/deliver</code></pre>
     "color":  ["Red", "Blue"],
     "weight": null
   }
-}</code></pre>
+}
+files=@front.jpg
+files=@back.jpg</code></pre>
   <p class="label">Rules</p>
   <ul>
     <li>Supported axes: <code>size</code>, <code>weight</code>, <code>color</code>. Other axes require a code change.</li>
     <li>Empty arrays and duplicate values are dropped silently.</li>
     <li>All axes empty or <code>option_sets</code> omitted &rarr; <strong>1 default variant</strong> with all axes null (single-SKU product).</li>
+    <li>Uploaded images must be one of <code>image/jpeg</code>, <code>image/png</code>, <code>image/webp</code>, <code>image/gif</code> and stay under <code>R2_MAX_IMAGE_BYTES</code>.</li>
     <li>PATCH <code>/api/products/{id}</code> does <strong>not</strong> re-expand — to add a new size after launch use <code>POST /api/products/{id}/variants</code>.</li>
   </ul>
   <p class="label">Response 201 (excerpt)</p>
@@ -677,8 +685,14 @@ POST /api/orders/{order_id}/deliver</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/products/{product_id}/variants <span class="role">office</span></h4>
+  <p>Request is <code>multipart/form-data</code>:</p>
+  <ul>
+    <li><code>payload</code> — JSON string matching <code>VariantCreate</code></li>
+    <li><code>file</code> — optional single image for this variant. If supplied it overrides any URL in <code>payload.image</code>.</li>
+  </ul>
   <p class="label">Body</p>
-  <pre><code>{ "size": "10kg", "sku": "PED-CHK-10K", "price": 2900, "discount_price": 2750, "stock": 40 }</code></pre>
+  <pre><code>payload={ "size": "10kg", "sku": "PED-CHK-10K", "price": 2900, "discount_price": 2750, "initial_stock": 40, "reorder_level": 5 }
+file=@variant-10kg.jpg</code></pre>
 </div>
 
 <div class="endpoint">

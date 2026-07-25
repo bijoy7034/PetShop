@@ -3,12 +3,14 @@ from fastapi import (
     Body,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
     UploadFile,
     status,
 )
+from pydantic import ValidationError
 
 from config.config import settings
 from enums.audit import AuditAction, ResourceType
@@ -126,39 +128,94 @@ async def get_product(product_id: str, _=Depends(require_any_user)):
     return _with_inventory(p)
 
 
+def _parse_json_form(raw, model_cls, field_name="payload"):
+    """Parse a JSON string form field into a pydantic model. Turns
+    validation errors into a 422 that matches how JSON-body routes fail."""
+    try:
+        return model_cls.model_validate_json(raw)
+    except ValidationError as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            {"field": field_name, "errors": e.errors()},
+        )
+
+
+async def _upload_one(file, key_prefix):
+    """Validate + upload a single image. Returns the R2 result dict
+    ({key, url}). Raises 400 on mime/size, 503 if R2 isn't configured."""
+    _read_image(file)
+    data = await _read_and_validate(file)
+    try:
+        return r2_storage.upload_image(
+            key_prefix=key_prefix,
+            data=data,
+            content_type=file.content_type,
+            filename=file.filename,
+        )
+    except r2_storage.R2NotConfiguredError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+
+
 @router.post("", response_model=Product, status_code=status.HTTP_201_CREATED)
 async def create_product(
-    payload: ProductCreate,
     request: Request,
     current=Depends(require_office),
+    payload: str = Form(..., description="ProductCreate JSON string"),
+    files: list[UploadFile] = File(default=[]),
 ):
-    sub, cat = _resolve_subcategory(payload.subcategory_id)
-    option_dump = payload.option_sets.model_dump() if payload.option_sets else None
-    variants = expand_option_sets(option_dump, payload.base_price)
+    """Create a product and (optionally) upload its images in one call.
+
+    Client sends `multipart/form-data`:
+      - `payload`: JSON string matching ProductCreate
+      - `files`:   zero or more image files (repeat the field to add many)
+
+    Any URLs already in `payload.images` are kept; uploaded files are
+    appended after them.
+    """
+    body = _parse_json_form(payload, ProductCreate)
+    # Fail fast on file validation BEFORE creating the product so we don't
+    # end up with a product row whose upload can't complete.
+    for f in files:
+        _read_image(f)
+
+    sub, cat = _resolve_subcategory(body.subcategory_id)
+    option_dump = body.option_sets.model_dump() if body.option_sets else None
+    variants = expand_option_sets(option_dump, body.base_price)
     p = ProductRepository.insert(
-        name=payload.name,
+        name=body.name,
         subcategory_id=sub["_id"],
         subcategory_name=sub["name"],
         category_id=cat["_id"],
         category_name=cat["name"],
-        description=payload.description,
-        base_price=payload.base_price,
-        discount_price=payload.discount_price,
+        description=body.description,
+        base_price=body.base_price,
+        discount_price=body.discount_price,
         variants=variants,
-        client_product_code=payload.client_product_code,
-        unit=payload.unit,
-        images=payload.images,
-        tags=payload.tags,
-        brand=payload.brand,
-        barcode=payload.barcode,
-        cost_price=payload.cost_price,
-        tax_rate=payload.tax_rate,
-        is_featured=payload.is_featured,
-        is_refundable=payload.is_refundable,
-        is_returnable=payload.is_returnable,
+        client_product_code=body.client_product_code,
+        unit=body.unit,
+        images=body.images,
+        tags=body.tags,
+        brand=body.brand,
+        barcode=body.barcode,
+        cost_price=body.cost_price,
+        tax_rate=body.tax_rate,
+        is_featured=body.is_featured,
+        is_refundable=body.is_refundable,
+        is_returnable=body.is_returnable,
     )
     seeds = p.pop("_inventory_seed", [])
     _seed_inventory_for(p, seeds)
+
+    uploaded_urls = []
+    for f in files:
+        r = await _upload_one(
+            f, key_prefix=f"products/{p.get('code') or p['_id']}"
+        )
+        ProductRepository.append_product_image(p["_id"], r["url"])
+        uploaded_urls.append(r["url"])
+    if uploaded_urls:
+        p = ProductRepository.by_id(p["_id"])
+
     record(
         AuditAction.PRODUCT_CREATE,
         ResourceType.PRODUCT,
@@ -169,6 +226,7 @@ async def create_product(
             "subcategory_id": p["subcategory_id"],
             "category_id": p["category_id"],
             "variant_count": len(variants),
+            "uploaded_images": uploaded_urls,
         },
         request=request,
     )
@@ -238,14 +296,28 @@ async def delete_product(
 )
 async def add_variant(
     product_id: str,
-    payload: VariantCreate,
     request: Request,
     current=Depends(require_office),
+    payload: str = Form(..., description="VariantCreate JSON string"),
+    file: UploadFile | None = File(default=None),
 ):
+    """Add a variant and (optionally) upload its image in one call.
+
+    Client sends `multipart/form-data`:
+      - `payload`: JSON string matching VariantCreate
+      - `file`:    optional image file for this variant
+
+    If a file is supplied it overrides `payload.image` and is uploaded
+    under the variant's R2 key prefix.
+    """
+    body = _parse_json_form(payload, VariantCreate)
+    if file is not None:
+        _read_image(file)
+
     p = ProductRepository.by_id(product_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
-    after, seed = ProductRepository.add_variant(product_id, payload.model_dump())
+    after, seed = ProductRepository.add_variant(product_id, body.model_dump())
     if seed:
         InventoryRepository.create(
             product_id=product_id,
@@ -255,12 +327,34 @@ async def add_variant(
             quantity_on_hand=seed["initial_stock"],
             reorder_level=seed["reorder_level"],
         )
+
+    uploaded_url = None
+    if file is not None and seed:
+        variant = next(
+            (v for v in after.get("variants") or [] if v["id"] == seed["variant_id"]),
+            None,
+        )
+        variant_code = (variant or {}).get("code") or seed["variant_id"]
+        r = await _upload_one(
+            file,
+            key_prefix=(
+                f"products/{p.get('code') or product_id}/variants/{variant_code}"
+            ),
+        )
+        ProductRepository.set_variant_image(product_id, seed["variant_id"], r["url"])
+        after = ProductRepository.by_id(product_id)
+        uploaded_url = r["url"]
+
     record(
         AuditAction.VARIANT_CREATE,
         ResourceType.PRODUCT,
         resource_id=product_id,
         actor=current["user"],
-        after={**payload.model_dump(), "variant_id": seed["variant_id"] if seed else None},
+        after={
+            **body.model_dump(),
+            "variant_id": seed["variant_id"] if seed else None,
+            "uploaded_image": uploaded_url,
+        },
         request=request,
     )
     return _with_inventory(after)

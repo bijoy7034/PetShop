@@ -371,12 +371,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
               { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
             ],
             "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"Pedigree Adult Chicken & Vegetables\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"description\": \"Adult dog food with real chicken and vegetables.\",\n  \"client_product_code\": \"CLI-PED-CHK\",\n  \"brand\": \"Mars Pet Care\",\n  \"unit\": \"kg\",\n  \"images\": [\n    \"https://cdn.example.com/pedigree/front.jpg\",\n    \"https://cdn.example.com/pedigree/back.jpg\"\n  ],\n  \"base_price\": 350,\n  \"option_sets\": {\n    \"size\": [\"1kg\", \"3kg\", \"10kg\"]\n  }\n}"
+              "mode": "formdata",
+              "formdata": [
+                { "key": "payload", "type": "text", "value": "{\n  \"name\": \"Pedigree Adult Chicken & Vegetables\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"description\": \"Adult dog food with real chicken and vegetables.\",\n  \"client_product_code\": \"CLI-PED-CHK\",\n  \"brand\": \"Mars Pet Care\",\n  \"unit\": \"kg\",\n  \"images\": [\n    \"https://cdn.example.com/pedigree/front.jpg\",\n    \"https://cdn.example.com/pedigree/back.jpg\"\n  ],\n  \"base_price\": 350,\n  \"option_sets\": {\n    \"size\": [\"1kg\", \"3kg\", \"10kg\"]\n  }\n}" },
+                { "key": "files", "type": "file", "src": [], "description": "Optional — attach one or more image files; each URL is appended to product.images" }
+              ]
             },
             "url": {
               "raw": "{{base_url}}/api/products",
@@ -1270,12 +1272,14 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
                 ],
                 "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"name\": \"Kong Classic Rubber Toy\",\n  \"subcategory_id\": \"{{subcategory_chew_id}}\",\n  \"client_product_code\": \"CLI-KONG-CLS\",\n  \"brand\": \"Kong Company\",\n  \"unit\": \"pcs\",\n  \"images\": [\"https://cdn.example.com/kong-classic.jpg\"],\n  \"base_price\": 550,\n  \"option_sets\": {\n    \"size\": [\"Small\", \"Medium\", \"Large\"],\n    \"color\": [\"Red\", \"Blue\"]\n  }\n}"
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "payload", "type": "text", "value": "{\n  \"name\": \"Kong Classic Rubber Toy\",\n  \"subcategory_id\": \"{{subcategory_chew_id}}\",\n  \"client_product_code\": \"CLI-KONG-CLS\",\n  \"brand\": \"Kong Company\",\n  \"unit\": \"pcs\",\n  \"images\": [\"https://cdn.example.com/kong-classic.jpg\"],\n  \"base_price\": 550,\n  \"option_sets\": {\n    \"size\": [\"Small\", \"Medium\", \"Large\"],\n    \"color\": [\"Red\", \"Blue\"]\n  }\n}" },
+                    { "key": "files", "type": "file", "src": [], "description": "Optional — one or more image files" }
+                  ]
                 },
                 "url": {
                   "raw": "{{base_url}}/api/products",
@@ -1289,12 +1293,14 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
                 ],
                 "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"name\": \"Petkin Dog Wipes\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"base_price\": 220\n}"
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "payload", "type": "text", "value": "{\n  \"name\": \"Petkin Dog Wipes\",\n  \"subcategory_id\": \"{{subcategory_dry_kibble_id}}\",\n  \"base_price\": 220\n}" },
+                    { "key": "files", "type": "file", "src": [], "description": "Optional — one or more image files" }
+                  ]
                 },
                 "url": {
                   "raw": "{{base_url}}/api/products",
@@ -1324,12 +1330,14 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  { "key": "Content-Type", "value": "application/json" },
                   { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
                 ],
                 "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"size\": \"20kg\",\n  \"sku\": \"PED-CHK-20K\",\n  \"price\": 5400,\n  \"initial_stock\": 10,\n  \"reorder_level\": 5\n}"
+                  "mode": "formdata",
+                  "formdata": [
+                    { "key": "payload", "type": "text", "value": "{\n  \"size\": \"20kg\",\n  \"sku\": \"PED-CHK-20K\",\n  \"price\": 5400,\n  \"initial_stock\": 10,\n  \"reorder_level\": 5\n}" },
+                    { "key": "file", "type": "file", "src": "", "description": "Optional — single image file for this variant" }
+                  ]
                 },
                 "url": {
                   "raw": "{{base_url}}/api/products/{{product_id}}/variants",

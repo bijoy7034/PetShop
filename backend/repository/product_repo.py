@@ -20,17 +20,18 @@ def variant_label(v):
 def _serialize_variants(variants, *, product_code, start_seq):
     out = []
     for i, v in enumerate(variants):
+        code = variant_code(product_code, start_seq + i)
         out.append(
             {
                 "_id": ObjectId(),
-                "code": variant_code(product_code, start_seq + i),
+                "code": code,
                 "seq": start_seq + i,
                 "is_active": True,
                 "name": v.get("name"),
                 "size": v.get("size"),
                 "weight": v.get("weight"),
                 "color": v.get("color"),
-                "sku": v.get("sku"),
+                "sku": v.get("sku") or code,
                 "image": v.get("image"),
                 "price": float(v["price"]),
                 "discount_price": (
