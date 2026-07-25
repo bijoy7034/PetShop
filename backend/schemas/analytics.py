@@ -89,3 +89,41 @@ class TargetAchievement(BaseModel):
     percentage_achieved: float
     remaining_target: float
     category_wise: list[CategoryAchievement]
+
+
+class TopProduct(BaseModel):
+    """One entry in a district's top-products list or a store's
+    recommended-products list."""
+    product_id: str
+    product_code: str | None = None
+    product_name: str
+    variant_id: str
+    variant_code: str | None = None
+    variant_label: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
+    qty: int
+    revenue: float
+    orders: int
+    last_ordered_at: datetime | None = None
+
+
+class DistrictAnalyticsItem(BaseModel):
+    district: str
+    revenue: float
+    orders: int
+    unique_stores: int
+    avg_order_value: float
+    top_products: list[TopProduct]
+
+
+class DistrictAnalytics(BaseModel):
+    range: DateRange
+    items: list[DistrictAnalyticsItem]
+
+
+class RecommendedProductsResponse(BaseModel):
+    store_id: str
+    store_name: str | None = None
+    source: str  # "store_history" | "global_fallback"
+    items: list[TopProduct]

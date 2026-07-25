@@ -855,6 +855,33 @@ POST /api/orders/{order_id}/deliver</code></pre>
   <pre><code>{ "reason": "Store's outstanding balance is too high" }</code></pre>
 </div>
 
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/{store_id}/recommended-products <span class="role">any user (own store only for sales_rep)</span></h4>
+  <p>Products this store should reorder next. <strong>Three-tier fallback</strong> so the rep always sees a useful list:</p>
+  <ol>
+    <li><code>store_history</code> — this store's own past orders (best signal). Ranked by orders desc, then revenue desc.</li>
+    <li><code>district_fallback</code> — top products across OTHER stores in the same district, used when this store has no order history yet. Approximates "what nearby stores buy" for a brand-new store.</li>
+    <li><code>global_fallback</code> — site-wide top products, used only if the district is also barren.</li>
+  </ol>
+  <p class="label">Query</p>
+  <pre><code>limit  1-50 (default 10)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "store_id": "...",
+  "store_name": "Alpha Pet Mart",
+  "source": "store_history",
+  "items": [
+    {
+      "product_id": "...", "product_code": "PRD-0001", "product_name": "Pedigree",
+      "variant_id": "...", "variant_code": "PRD-0001-V01", "variant_label": "3kg",
+      "category_id": "...", "category_name": "Dog Food",
+      "qty": 15, "revenue": 4500.0, "orders": 3,
+      "last_ordered_at": "2026-07-20T14:12:00Z"
+    }
+  ]
+}</code></pre>
+</div>
+
 <h2 id="visits">Visits</h2>
 <p class="muted">Field-visit log (replaces the earlier <code>/api/attendance</code>). Multiple visits per store per day are now allowed. Every visit is one of two modes:</p>
 <ul>
@@ -1170,6 +1197,37 @@ limit  1-500 (default 100)</code></pre>
   "items": [
     { "rep_id": "...", "rep_name": "Arjun", "revenue": 32500, "orders": 18, "visits": 24, "conversion_rate": 0.75, "avg_order_value": 1805.55, "target": null, "target_achievement_pct": null },
     { "rep_id": "...", "rep_name": "Neha",  "revenue": 12000, "orders":  8, "visits": 11, "conversion_rate": 0.7272, "avg_order_value": 1500.0, "target": null, "target_achievement_pct": null }
+  ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/districts <span class="role">any user</span></h4>
+  <p>Revenue + orders per district, each district with its top-N most-ordered <code>(product, variant)</code> pairs. Sales rep sees only districts where they have assigned stores; office/admin see every district. Two Mongo aggregations total regardless of district count — top products are ranked in-DB and sliced in Python.</p>
+  <p class="label">Query</p>
+  <pre><code>from            (ISO datetime, optional)
+to              (ISO datetime, optional)
+top_n_products  1-20 (default 5) — how many products per district</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "range": { "from": null, "to": null },
+  "items": [
+    {
+      "district": "Bengaluru South",
+      "revenue": 125000.0,
+      "orders": 34,
+      "unique_stores": 12,
+      "avg_order_value": 3676.47,
+      "top_products": [
+        {
+          "product_id": "...", "product_code": "PRD-0001", "product_name": "Pedigree",
+          "variant_id": "...", "variant_code": "PRD-0001-V01", "variant_label": "3kg",
+          "category_id": "...", "category_name": "Dog Food",
+          "qty": 340, "revenue": 42000.0, "orders": 18,
+          "last_ordered_at": "2026-07-20T14:12:00Z"
+        }
+      ]
+    }
   ]
 }</code></pre>
 </div>

@@ -6,6 +6,7 @@ from enums.user import Role
 from middleware.auth import require_admin, require_any_user, require_office
 from repository.store_repo import StoreRepository
 from repository.user_repo import UserRepository
+from schemas.analytics import RecommendedProductsResponse
 from schemas.store import (
     CreditLimitPropose,
     CreditLimitReject,
@@ -17,6 +18,7 @@ from schemas.store import (
     StoreReject,
     StoreUpdate,
 )
+from services import rep_analytics_service as analytics
 from services.audit_service import record
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -424,3 +426,37 @@ async def reject_credit_limit(
         request=request,
     )
     return after
+
+
+@router.get(
+    "/{store_id}/recommended-products",
+    response_model=RecommendedProductsResponse,
+)
+async def recommended_products_for_store(
+    store_id: str,
+    limit: int = Query(10, ge=1, le=50),
+    current=Depends(require_any_user),
+):
+    """Products this store should reorder next. Three-tier fallback:
+      1. `store_history` — the store's own past orders (best signal).
+      2. `district_fallback` — top products across other stores in the
+         same district, when this store has no order history.
+      3. `global_fallback` — site-wide top products, only if the district
+         is also barren.
+
+    Sales rep can only see recommendations for their assigned stores."""
+    store = StoreRepository.by_id(store_id)
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    if not _visible(current["user"], store):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+
+    source, items = analytics.recommended_products_for_store(
+        store_id, district=store.get("district"), limit=limit,
+    )
+    return {
+        "store_id": store_id,
+        "store_name": store.get("name"),
+        "source": source,
+        "items": items,
+    }

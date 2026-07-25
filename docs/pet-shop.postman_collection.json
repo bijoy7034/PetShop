@@ -1594,6 +1594,19 @@
                   "path": ["api", "stores", "{{store_id}}", "credit-limit", "reject"]
                 }
               }
+            },
+            {
+              "name": "Recommended products (three-tier: store > district > global)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/recommended-products?limit=10",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "recommended-products"],
+                  "query": [{ "key": "limit", "value": "10" }]
+                }
+              }
             }
           ]
         },
@@ -2043,6 +2056,23 @@
                     { "key": "sort", "value": "target_achievement_pct" },
                     { "key": "year", "value": "2026" },
                     { "key": "month", "value": "7" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "District analytics (revenue + top products per district)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/districts?top_n_products=5",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "districts"],
+                  "query": [
+                    { "key": "top_n_products", "value": "5" },
+                    { "key": "from", "value": "2026-07-01T00:00:00Z", "disabled": true },
+                    { "key": "to", "value": "2026-07-31T23:59:59Z", "disabled": true }
                   ]
                 }
               }

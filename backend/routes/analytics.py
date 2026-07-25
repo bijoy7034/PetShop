@@ -3,7 +3,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from middleware.auth import require_any_user, require_office
-from schemas.analytics import Leaderboard, MonthlyRepAnalytics, RepAnalytics, TargetAchievement
+from repository.store_repo import StoreRepository
+from schemas.analytics import (
+    DistrictAnalytics,
+    Leaderboard,
+    MonthlyRepAnalytics,
+    RepAnalytics,
+    TargetAchievement,
+)
 from services import rep_analytics_service as analytics
 
 
@@ -124,3 +131,27 @@ async def leaderboard_endpoint(
         "sort": sort,
         "items": entries,
     }
+
+
+@router.get("/districts", response_model=DistrictAnalytics)
+async def district_analytics_endpoint(
+    from_: datetime | None = Query(None, alias="from"),
+    to: datetime | None = Query(None),
+    top_n_products: int = Query(5, ge=1, le=20),
+    current=Depends(require_any_user),
+):
+    """Revenue + orders per district, with each district's top-N most-ordered
+    (product, variant) pairs. Sales rep sees only districts where they have
+    assigned stores; office/admin see every district."""
+    user = current["user"]
+    allowed = None
+    if not _is_office(user):
+        rep_districts = StoreRepository.districts_for_rep(user["_id"])
+        allowed = set(rep_districts) or set()  # empty set → no rows
+
+    items = analytics.district_analytics(
+        from_dt=from_, to_dt=to,
+        allowed_districts=allowed,
+        top_n_products=top_n_products,
+    )
+    return {"range": {"from": from_, "to": to}, "items": items}

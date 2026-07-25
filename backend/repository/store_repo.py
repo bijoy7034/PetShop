@@ -28,6 +28,16 @@ class StoreRepository:
         return to_public_doc(StoreRepository._coll().find_one({"_id": oid}))
 
     @staticmethod
+    def districts_for_rep(sales_rep_id):
+        """Distinct set of districts across all stores currently assigned
+        to this rep. Empty list if the rep has no stores yet."""
+        vals = StoreRepository._coll().distinct(
+            "district",
+            {"sales_rep_id": sales_rep_id, "district": {"$nin": [None, ""]}},
+        )
+        return [v for v in vals if v]
+
+    @staticmethod
     def list(sales_rep_id=None, status=None, search=None, skip=0, limit=50):
         q = {}
         if sales_rep_id:

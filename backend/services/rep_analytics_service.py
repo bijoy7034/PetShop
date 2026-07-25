@@ -337,3 +337,195 @@ def stores_visited_by_rep(rep_id, from_dt, to_dt):
         "store_id", _visit_match(rep_id, from_dt, to_dt)
     )
     return len(ids)
+
+
+# --------- District analytics ---------
+
+def district_analytics(*, from_dt=None, to_dt=None, allowed_districts=None,
+                       top_n_products=5):
+    """Revenue + orders per district, with each district's top-N products.
+    Two pipelines total (constant round-trips regardless of district count).
+
+    `allowed_districts` scopes the result — sales rep passes their own
+    store districts; office/admin passes None (all districts).
+    """
+    match = _order_match(None, from_dt, to_dt)
+    match["store_district"] = {"$nin": [None, ""]}
+    if allowed_districts is not None:
+        if not allowed_districts:
+            return []
+        match["store_district"] = {
+            "$in": list(allowed_districts), "$nin": [None, ""]
+        }
+
+    # 1) Per-district totals.
+    totals_pipeline = [
+        {"$match": match},
+        {"$group": {
+            "_id": "$store_district",
+            "revenue": {"$sum": "$total"},
+            "orders": {"$sum": 1},
+            "store_ids": {"$addToSet": "$store_id"},
+        }},
+    ]
+    totals_by_district = {}
+    for row in _orders_coll().aggregate(totals_pipeline):
+        totals_by_district[row["_id"]] = {
+            "revenue": float(row["revenue"] or 0),
+            "orders": int(row["orders"] or 0),
+            "unique_stores": len(row["store_ids"]),
+        }
+
+    if not totals_by_district:
+        return []
+
+    # 2) Top products per district. One aggregation, ranked in-DB.
+    products_pipeline = [
+        {"$match": match},
+        {"$unwind": "$lines"},
+        {"$group": {
+            "_id": {
+                "district": "$store_district",
+                "product_id": "$lines.product_id",
+                "variant_id": "$lines.variant_id",
+            },
+            "product_code": {"$first": "$lines.product_code"},
+            "product_name": {"$first": "$lines.product_name"},
+            "variant_code": {"$first": "$lines.variant_code"},
+            "variant_label": {"$first": "$lines.variant_label"},
+            "category_id": {"$first": "$lines.category_id"},
+            "category_name": {"$first": "$lines.category_name"},
+            "qty": {"$sum": {"$ifNull": [
+                "$lines.qty_accepted", "$lines.qty_ordered",
+            ]}},
+            "revenue": {"$sum": "$lines.line_total"},
+            "orders": {"$sum": 1},
+            "last_ordered_at": {"$max": "$created_at"},
+        }},
+        {"$sort": {"_id.district": 1, "revenue": -1}},
+    ]
+
+    by_district_products = {}
+    for row in _orders_coll().aggregate(products_pipeline):
+        district = row["_id"]["district"]
+        arr = by_district_products.setdefault(district, [])
+        if len(arr) >= top_n_products:
+            continue
+        arr.append({
+            "product_id": row["_id"]["product_id"],
+            "product_code": row.get("product_code"),
+            "product_name": row.get("product_name") or "",
+            "variant_id": row["_id"]["variant_id"],
+            "variant_code": row.get("variant_code"),
+            "variant_label": row.get("variant_label"),
+            "category_id": row.get("category_id"),
+            "category_name": row.get("category_name"),
+            "qty": int(row.get("qty") or 0),
+            "revenue": float(row.get("revenue") or 0),
+            "orders": int(row.get("orders") or 0),
+            "last_ordered_at": row.get("last_ordered_at"),
+        })
+
+    items = []
+    for district, t in totals_by_district.items():
+        avg = round(t["revenue"] / t["orders"], 2) if t["orders"] else 0.0
+        items.append({
+            "district": district,
+            "revenue": t["revenue"],
+            "orders": t["orders"],
+            "unique_stores": t["unique_stores"],
+            "avg_order_value": avg,
+            "top_products": by_district_products.get(district, []),
+        })
+    items.sort(key=lambda e: e["revenue"], reverse=True)
+    return items
+
+
+# --------- Recommended products for a store ---------
+
+def _top_products_pipeline(match, limit):
+    """Shared: group counted-order lines by (product_id, variant_id) and
+    rank by orders desc, then revenue desc."""
+    return [
+        {"$match": match},
+        {"$unwind": "$lines"},
+        {"$group": {
+            "_id": {
+                "product_id": "$lines.product_id",
+                "variant_id": "$lines.variant_id",
+            },
+            "product_code": {"$first": "$lines.product_code"},
+            "product_name": {"$first": "$lines.product_name"},
+            "variant_code": {"$first": "$lines.variant_code"},
+            "variant_label": {"$first": "$lines.variant_label"},
+            "category_id": {"$first": "$lines.category_id"},
+            "category_name": {"$first": "$lines.category_name"},
+            "qty": {"$sum": {"$ifNull": [
+                "$lines.qty_accepted", "$lines.qty_ordered",
+            ]}},
+            "revenue": {"$sum": "$lines.line_total"},
+            "orders": {"$sum": 1},
+            "last_ordered_at": {"$max": "$created_at"},
+        }},
+        {"$sort": {"orders": -1, "revenue": -1}},
+        {"$limit": limit},
+    ]
+
+
+def _shape_top_products(rows):
+    out = []
+    for row in rows:
+        out.append({
+            "product_id": row["_id"]["product_id"],
+            "product_code": row.get("product_code"),
+            "product_name": row.get("product_name") or "",
+            "variant_id": row["_id"]["variant_id"],
+            "variant_code": row.get("variant_code"),
+            "variant_label": row.get("variant_label"),
+            "category_id": row.get("category_id"),
+            "category_name": row.get("category_name"),
+            "qty": int(row.get("qty") or 0),
+            "revenue": float(row.get("revenue") or 0),
+            "orders": int(row.get("orders") or 0),
+            "last_ordered_at": row.get("last_ordered_at"),
+        })
+    return out
+
+
+def recommended_products_for_store(store_id, *, district=None, limit=10):
+    """Three-tier ranking so the rep always sees a useful list:
+      1. `store_history` — this store's own past orders (best signal)
+      2. `district_fallback` — top products across OTHER stores in the
+         same district (when this store has no orders yet — likely a
+         new store, so what nearby stores buy is the closest proxy)
+      3. `global_fallback` — top products across every store (only used
+         when the district also has no order history)
+
+    Returns (source, items).
+    """
+    counted = {"$in": list(_COUNTED_ORDER_STATUSES)}
+
+    # Tier 1 — store history
+    store_match = {"status": counted, "store_id": store_id}
+    rows = list(_orders_coll().aggregate(_top_products_pipeline(store_match, limit)))
+    if rows:
+        return "store_history", _shape_top_products(rows)
+
+    # Tier 2 — district fallback (exclude this store so the answer is
+    # 'what other stores near you buy')
+    if district:
+        district_match = {
+            "status": counted,
+            "store_district": district,
+            "store_id": {"$ne": store_id},
+        }
+        rows = list(_orders_coll().aggregate(
+            _top_products_pipeline(district_match, limit)
+        ))
+        if rows:
+            return "district_fallback", _shape_top_products(rows)
+
+    # Tier 3 — global
+    global_match = {"status": counted}
+    rows = list(_orders_coll().aggregate(_top_products_pipeline(global_match, limit)))
+    return "global_fallback", _shape_top_products(rows)
