@@ -176,6 +176,7 @@
     <li><a href="#orders">Orders</a></li>
     <li><a href="#images">Product images (R2)</a></li>
     <li><a href="#analytics">Analytics</a></li>
+    <li><a href="#filters">Filters</a></li>
     <li><a href="#rep-targets">Rep Targets</a></li>
     <li><a href="#achievements">Achievements</a></li>
   </ul>
@@ -1229,6 +1230,71 @@ top_n_products  1-20 (default 5) — how many products per district</code></pre>
       ]
     }
   ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/districts/{district_name} <span class="role">any user</span></h4>
+  <p>Deep view of one district — pass the district name in the URL (spaces are URL-encoded normally). Sales rep gets <code>404 Not Found</code> for any district where they don't have at least one assigned store (existence-hiding). Returns <code>404</code> when the district has zero counted orders in the range.</p>
+  <p class="label">Query</p>
+  <pre><code>from            (ISO datetime, optional)
+to              (ISO datetime, optional)
+top_n_products  1-50 (default 20)
+top_n_stores    1-50 (default 20)
+top_n_reps      1-50 (default 20)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "district": "Bengaluru South",
+  "range": { "from": null, "to": null },
+  "totals": {
+    "revenue": 125000.0,
+    "orders": 34,
+    "unique_stores": 12,
+    "avg_order_value": 3676.47
+  },
+  "top_products": [
+    { "product_id": "...", "product_code": "PRD-0001", "product_name": "Pedigree",
+      "variant_id": "...", "variant_code": "PRD-0001-V01", "variant_label": "3kg",
+      "category_id": "...", "category_name": "Dog Food",
+      "qty": 340, "revenue": 42000, "orders": 18, "last_ordered_at": "&hellip;" }
+  ],
+  "by_category": [
+    { "category_id": "...", "category_name": "Dog Food", "revenue": 80000, "orders": 22 }
+  ],
+  "top_stores": [
+    { "store_id": "...", "store_code": "STR-0001", "store_name": "Alpha",
+      "revenue": 45000, "orders": 12 }
+  ],
+  "by_rep": [
+    { "rep_id": "...", "rep_name": "Arjun", "revenue": 100000, "orders": 25 }
+  ]
+}</code></pre>
+</div>
+
+<h2 id="filters">Filters (dropdown data)</h2>
+<p>One-shot bundle so the frontend can populate every filter dropdown with a single request on page load. Cheap by design — mostly <code>$distinct</code> queries and light projections. Sales rep sees only their own districts and just themselves in the reps list; categories, subcategories, and enums are always the full set.</p>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/filters <span class="role">any user</span></h4>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "districts": ["Bengaluru South", "Mysuru South"],
+  "sales_reps": [ { "id": "...", "name": "Arjun" }, { "id": "...", "name": "Neha" } ],
+  "categories": [ { "id": "...", "name": "Dog Food" } ],
+  "subcategories": [
+    { "id": "...", "name": "Dry kibble", "category_id": "...", "category_name": "Dog Food" }
+  ],
+  "order_statuses": ["pending_admin_approval", "placed", "accepted", "packing",
+                     "out_for_delivery", "delivered", "cancelled", "delayed"],
+  "payment_statuses": ["pending", "partially_paid", "paid"],
+  "store_statuses": ["pending", "approved", "rejected"],
+  "visit_modes": ["in_store", "remote"],
+  "visit_outcomes": ["order_placed", "no_order"],
+  "achievement_periods": ["daily", "weekly", "monthly"],
+  "achievement_metrics": ["orders_completed", "revenue_generated",
+                          "stores_visited", "conversion_rate"],
+  "achievement_progress_statuses": ["in_progress", "completed", "claimed"],
+  "user_roles": ["admin", "office_staff", "sales_rep"]
 }</code></pre>
 </div>
 

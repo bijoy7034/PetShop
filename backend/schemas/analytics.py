@@ -127,3 +127,42 @@ class RecommendedProductsResponse(BaseModel):
     store_name: str | None = None
     source: str  # "store_history" | "global_fallback"
     items: list[TopProduct]
+
+
+class DistrictTotals(BaseModel):
+    revenue: float = 0.0
+    orders: int = 0
+    unique_stores: int = 0
+    avg_order_value: float = 0.0
+
+
+class CategoryRevenue(BaseModel):
+    category_id: str
+    category_name: str | None = None
+    revenue: float
+    orders: int
+
+
+class DistrictStore(BaseModel):
+    store_id: str
+    store_code: str | None = None
+    store_name: str | None = None
+    revenue: float
+    orders: int
+
+
+class DistrictRep(BaseModel):
+    rep_id: str
+    rep_name: str | None = None
+    revenue: float
+    orders: int
+
+
+class DistrictAnalyticsDetail(BaseModel):
+    district: str
+    range: DateRange
+    totals: DistrictTotals
+    top_products: list[TopProduct]
+    by_category: list[CategoryRevenue]
+    top_stores: list[DistrictStore]
+    by_rep: list[DistrictRep]

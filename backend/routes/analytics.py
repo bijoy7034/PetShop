@@ -6,6 +6,7 @@ from middleware.auth import require_any_user, require_office
 from repository.store_repo import StoreRepository
 from schemas.analytics import (
     DistrictAnalytics,
+    DistrictAnalyticsDetail,
     Leaderboard,
     MonthlyRepAnalytics,
     RepAnalytics,
@@ -155,3 +156,42 @@ async def district_analytics_endpoint(
         top_n_products=top_n_products,
     )
     return {"range": {"from": from_, "to": to}, "items": items}
+
+
+@router.get(
+    "/districts/{district_name}",
+    response_model=DistrictAnalyticsDetail,
+)
+async def district_detail_endpoint(
+    district_name: str,
+    from_: datetime | None = Query(None, alias="from"),
+    to: datetime | None = Query(None),
+    top_n_products: int = Query(20, ge=1, le=50),
+    top_n_stores: int = Query(20, ge=1, le=50),
+    top_n_reps: int = Query(20, ge=1, le=50),
+    current=Depends(require_any_user),
+):
+    """Deep view of one district — totals, top products, revenue by
+    category, top stores, revenue by rep. Sales rep can only pull a
+    district where they have at least one assigned store (404 otherwise
+    so we don't leak the district list)."""
+    user = current["user"]
+    if not _is_office(user):
+        allowed = set(StoreRepository.districts_for_rep(user["_id"]))
+        if district_name not in allowed:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "District not found")
+
+    detail = analytics.district_detail(
+        district_name,
+        from_dt=from_, to_dt=to,
+        top_n_products=top_n_products,
+        top_n_stores=top_n_stores,
+        top_n_reps=top_n_reps,
+    )
+    if detail is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"No orders found in '{district_name}' for the given range.",
+        )
+    detail["range"] = {"from": from_, "to": to}
+    return detail

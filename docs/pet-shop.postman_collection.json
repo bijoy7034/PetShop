@@ -887,6 +887,81 @@
           "name": "Auth",
           "item": [
             {
+              "name": "Login (edit body)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Login OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "login"]
+                }
+              }
+            },
+            {
+              "name": "Login as admin",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "login"]
+                }
+              }
+            },
+            {
+              "name": "Login as office_staff",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{office_email}}\",\n  \"password\": \"{{office_password}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "login"]
+                }
+              }
+            },
+            {
+              "name": "Login as sales_rep",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{rep_email}}\",\n  \"password\": \"{{rep_password}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/auth/login",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "auth", "login"]
+                }
+              }
+            },
+            {
               "name": "Me",
               "request": {
                 "method": "GET",
@@ -2074,6 +2149,43 @@
                     { "key": "from", "value": "2026-07-01T00:00:00Z", "disabled": true },
                     { "key": "to", "value": "2026-07-31T23:59:59Z", "disabled": true }
                   ]
+                }
+              }
+            },
+            {
+              "name": "District detail (input a district name; get deep view)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/districts/Bengaluru South?top_n_products=20&top_n_stores=20&top_n_reps=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "districts", "Bengaluru South"],
+                  "query": [
+                    { "key": "top_n_products", "value": "20" },
+                    { "key": "top_n_stores", "value": "20" },
+                    { "key": "top_n_reps", "value": "20" },
+                    { "key": "from", "value": "2026-07-01T00:00:00Z", "disabled": true },
+                    { "key": "to", "value": "2026-07-31T23:59:59Z", "disabled": true }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filters (dropdown data)",
+          "description": "One-shot bundle of everything the frontend needs to populate dropdowns: districts, sales_reps, categories, subcategories + every backend enum. Sales rep sees only their own districts + themselves; office/admin sees all.",
+          "item": [
+            {
+              "name": "Get filter bundle",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/filters",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "filters"]
                 }
               }
             }

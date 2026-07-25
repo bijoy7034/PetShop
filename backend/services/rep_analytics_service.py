@@ -492,6 +492,135 @@ def _shape_top_products(rows):
     return out
 
 
+def _stores_coll():
+    return get_db()[settings.STORES_COLL]
+
+
+def district_detail(district, *, from_dt=None, to_dt=None,
+                    top_n_products=20, top_n_stores=20, top_n_reps=20):
+    """Deep view of one district: totals + top products + revenue by
+    category + top stores + revenue by rep. Four Mongo aggregations
+    total, each cheap because the $match hits the same indexed
+    (status, store_district, created_at) triplet.
+
+    Returns None if the district has no counted orders in the range.
+    """
+    match = _order_match(None, from_dt, to_dt)
+    match["store_district"] = district
+
+    # 1) Totals + unique stores.
+    totals_pipeline = [
+        {"$match": match},
+        {"$group": {
+            "_id": None,
+            "revenue": {"$sum": "$total"},
+            "orders": {"$sum": 1},
+            "store_ids": {"$addToSet": "$store_id"},
+        }},
+    ]
+    totals_res = list(_orders_coll().aggregate(totals_pipeline))
+    if not totals_res:
+        return None
+    t = totals_res[0]
+    revenue = float(t["revenue"] or 0)
+    orders = int(t["orders"] or 0)
+    totals = {
+        "revenue": revenue,
+        "orders": orders,
+        "unique_stores": len(t["store_ids"]),
+        "avg_order_value": round(revenue / orders, 2) if orders else 0.0,
+    }
+
+    # 2) Top products.
+    products_pipeline = _top_products_pipeline(match, top_n_products)
+    top_products = _shape_top_products(_orders_coll().aggregate(products_pipeline))
+
+    # 3) Revenue by category (denormalised category_id on lines).
+    cat_pipeline = [
+        {"$match": match},
+        {"$unwind": "$lines"},
+        {"$match": {"lines.category_id": {"$ne": None}}},
+        {"$group": {
+            "_id": "$lines.category_id",
+            "category_name": {"$first": "$lines.category_name"},
+            "revenue": {"$sum": "$lines.line_total"},
+            "orders": {"$sum": 1},
+        }},
+        {"$sort": {"revenue": -1}},
+    ]
+    by_category = [
+        {
+            "category_id": row["_id"],
+            "category_name": row.get("category_name"),
+            "revenue": float(row["revenue"] or 0),
+            "orders": int(row["orders"] or 0),
+        }
+        for row in _orders_coll().aggregate(cat_pipeline)
+        if row.get("_id")
+    ]
+
+    # 4) Top stores in the district.
+    stores_pipeline = [
+        {"$match": match},
+        {"$group": {
+            "_id": "$store_id",
+            "store_code": {"$first": "$store_code"},
+            "store_name": {"$first": "$store_name"},
+            "revenue": {"$sum": "$total"},
+            "orders": {"$sum": 1},
+        }},
+        {"$sort": {"revenue": -1}},
+        {"$limit": top_n_stores},
+    ]
+    top_stores = [
+        {
+            "store_id": row["_id"],
+            "store_code": row.get("store_code"),
+            "store_name": row.get("store_name"),
+            "revenue": float(row["revenue"] or 0),
+            "orders": int(row["orders"] or 0),
+        }
+        for row in _orders_coll().aggregate(stores_pipeline)
+    ]
+
+    # 5) Revenue by rep in the district.
+    rep_pipeline = [
+        {"$match": match},
+        {"$group": {
+            "_id": "$sales_rep_id",
+            "rep_name": {"$first": "$sales_rep_name"},
+            "revenue": {"$sum": "$total"},
+            "orders": {"$sum": 1},
+        }},
+        {"$sort": {"revenue": -1}},
+        {"$limit": top_n_reps},
+    ]
+    by_rep = [
+        {
+            "rep_id": row["_id"],
+            "rep_name": row.get("rep_name"),
+            "revenue": float(row["revenue"] or 0),
+            "orders": int(row["orders"] or 0),
+        }
+        for row in _orders_coll().aggregate(rep_pipeline)
+    ]
+
+    return {
+        "district": district,
+        "totals": totals,
+        "top_products": top_products,
+        "by_category": by_category,
+        "top_stores": top_stores,
+        "by_rep": by_rep,
+    }
+
+
+def all_districts():
+    """Distinct district names from the stores collection, alphabetical."""
+    vals = _stores_coll().distinct("district", {"district": {"$nin": [None, ""]}})
+    return sorted(v for v in vals if v)
+
+
 def recommended_products_for_store(store_id, *, district=None, limit=10):
     """Three-tier ranking so the rep always sees a useful list:
       1. `store_history` — this store's own past orders (best signal)
