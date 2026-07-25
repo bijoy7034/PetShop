@@ -14,12 +14,6 @@ class SubcategoryFilter(BaseModel):
 
 
 class FiltersResponse(BaseModel):
-    """One-shot payload for populating frontend dropdowns. Cheap to
-    compute — mostly $distinct queries + light projections.
-
-    Scoping: office/admin get the full lists; sales rep gets only
-    districts where they have stores and just themselves in the reps
-    list — categories/subcategories/enums are always the full set."""
     districts: list[str]
     sales_reps: list[IdName]
     categories: list[IdName]

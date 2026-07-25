@@ -1814,7 +1814,7 @@
           "name": "Orders",
           "item": [
             {
-              "name": "List orders",
+              "name": "List orders (with filters)",
               "request": {
                 "method": "GET",
                 "header": [],
@@ -1826,7 +1826,26 @@
                     { "key": "page", "value": "1" },
                     { "key": "page_size", "value": "50" },
                     { "key": "store_id", "value": "{{store_id}}", "disabled": true },
-                    { "key": "status", "value": "placed", "disabled": true }
+                    { "key": "status", "value": "placed", "disabled": true },
+                    { "key": "payment_status", "value": "pending", "disabled": true },
+                    { "key": "over_credit_approved", "value": "true", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List over-credit-approved orders (exposure view)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders?over_credit_approved=true&page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders"],
+                  "query": [
+                    { "key": "over_credit_approved", "value": "true" },
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" }
                   ]
                 }
               }
@@ -1917,7 +1936,7 @@
               }
             },
             {
-              "name": "Admin approves a pending_admin_approval order",
+              "name": "Admin approves a pending_admin_approval order (overrides credit limit)",
               "request": {
                 "method": "POST",
                 "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],

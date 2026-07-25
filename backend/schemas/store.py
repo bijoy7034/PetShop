@@ -25,13 +25,8 @@ class StoreCreate(BaseModel):
     email: EmailStr | None = None
     gst_number: str | None = Field(default=None, max_length=32)
     notes: str | None = Field(default=None, max_length=2000)
-    # Only honoured when the caller is admin/office_staff (they can create
-    # already-approved stores on behalf of a sales rep). Sales-rep callers
-    # self-assign and these fields are ignored.
     sales_rep_id: str | None = None
     credit_limit: float | None = Field(default=None, ge=0)
-    # Commercial terms — sent through when admin/office creates.
-    # Sales rep creates with defaults; office can update via PATCH.
     credit_period_days: int | None = Field(default=None, ge=0, le=365)
     is_free_cancellation: bool | None = None
     cancellation_charges: float | None = Field(default=None, ge=0)
@@ -92,11 +87,11 @@ class Store(BaseModel):
     status: StoreStatus = StoreStatus.PENDING
     credit_limit: float = 0.0
     credit_used: float = 0.0
+    available_credit: float = 0.0
+    is_over_credit_limit: bool = False
     pending_credit_limit: float | None = None
     credit_change_status: CreditChangeStatus = CreditChangeStatus.NONE
     reject_reason: str | None = None
-    # Commercial terms snapshotted onto each order at placement so future
-    # changes here don't rewrite historical orders.
     credit_period_days: int = 30
     is_free_cancellation: bool = True
     cancellation_charges: float = 0.0

@@ -51,6 +51,11 @@ async def list_orders(
     store_id: str | None = Query(None),
     status_filter: str | None = Query(None, alias="status"),
     payment_status: str | None = Query(None),
+    over_credit_approved: bool | None = Query(
+        None,
+        description="Filter for orders approved despite exceeding the store's "
+                    "credit limit. true = show exposure list; false = exclude.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
@@ -63,6 +68,7 @@ async def list_orders(
         store_id=store_id,
         status=status_filter,
         payment_status=payment_status,
+        over_credit_approved=over_credit_approved,
         skip=skip,
         limit=page_size,
     )
@@ -168,11 +174,12 @@ async def admin_approve_order(
     request: Request,
     current=Depends(require_admin),
 ):
-    """Admin approves a pending_admin_approval order. The credit line is
-    re-checked (another paid order could have consumed the room since the
-    over-credit order was placed); if it still doesn't fit, returns 409
-    and the admin can either reject the order or raise the store's
-    credit_limit."""
+    """Admin approves a pending_admin_approval order. Approval overrides
+    the credit limit by design — that's the whole point of the workflow.
+    credit_used is still bumped by the order total so the ledger stays
+    honest; the store's `available_credit` may go negative until they
+    pay down. Audit captures both the pre-bump exposure and the post-
+    bump number so the override is visible."""
     order = OrderRepository.by_id(order_id)
     if not order:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
@@ -184,30 +191,54 @@ async def admin_approve_order(
     store = StoreRepository.by_id(order["store_id"])
     if not store:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Store no longer exists")
-    available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
+    available_before = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
     total = float(order.get("total") or 0)
-    if total > available + 1e-6:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Cannot approve — order total {total:.2f} still exceeds available "
-            f"credit {available:.2f}. Raise the store's credit_limit or reject.",
-        )
+    over_limit_by = max(0.0, total - available_before)
+
     hold = StoreRepository.adjust_credit_used(order["store_id"], total)
     if hold is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Credit hold failed at approval (concurrent write). Retry.",
         )
+
+    from helpers.datetime import now_utc
+    extra = None
+    if over_limit_by > 0:
+        # Stamp the order so the flag surfaces in every GET /orders read,
+        # not just the audit log.
+        extra = {
+            "over_credit_approved": True,
+            "over_credit_amount": over_limit_by,
+            "over_credit_approved_at": now_utc(),
+            "over_credit_approved_by_id": current["user"]["_id"],
+            "over_credit_approved_by_name": current["user"].get("name"),
+        }
+
     after = OrderRepository.set_status(
-        order_id, OrderStatus.PLACED.value, current["user"], note="Approved by admin."
+        order_id, OrderStatus.PLACED.value, current["user"],
+        note=(
+            "Approved by admin (OVER CREDIT — exceeded available "
+            f"by {over_limit_by:.2f})."
+            if over_limit_by > 0 else "Approved by admin."
+        ),
+        extra=extra,
     )
     record(
         AuditAction.ORDER_ADMIN_APPROVE,
         ResourceType.ORDER,
         resource_id=order_id,
         actor=current["user"],
-        before={"status": order["status"]},
-        after={"status": after["status"], "credit_held": total},
+        before={
+            "status": order["status"],
+            "available_credit_before": available_before,
+        },
+        after={
+            "status": after["status"],
+            "credit_held": total,
+            "over_credit_approved": over_limit_by > 0,
+            "over_credit_amount": over_limit_by,
+        },
         request=request,
     )
     notification_service.notify_order_status(

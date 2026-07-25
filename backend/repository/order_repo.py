@@ -43,7 +43,8 @@ class OrderRepository:
         return _with_outstanding(OrderRepository._coll().find_one({"_id": oid}))
 
     @staticmethod
-    def list(sales_rep_id=None, store_id=None, status=None, payment_status=None, skip=0, limit=50):
+    def list(sales_rep_id=None, store_id=None, status=None, payment_status=None,
+             over_credit_approved=None, skip=0, limit=50):
         q = {}
         if sales_rep_id:
             q["sales_rep_id"] = sales_rep_id
@@ -53,6 +54,10 @@ class OrderRepository:
             q["status"] = status
         if payment_status:
             q["payment_status"] = payment_status
+        if over_credit_approved is True:
+            q["over_credit_approved"] = True
+        elif over_credit_approved is False:
+            q["over_credit_approved"] = {"$ne": True}
         cur = (
             OrderRepository._coll()
             .find(q)

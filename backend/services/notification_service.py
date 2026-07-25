@@ -144,6 +144,27 @@ def notify_order_status(*, order, prev_status, actor=None):
             meta=_order_meta(order),
             link=f"/orders/{order['_id']}",
         )
+    elif new_status == "placed" and prev_status == "pending_admin_approval":
+        # Admin approved an over-credit or pending order. Rep sees a
+        # slightly different message so they know it's a re-entry to
+        # the flow, not a fresh acceptance.
+        over_flag = order.get("over_credit_approved")
+        body = (
+            f"Admin approved despite exceeding credit by "
+            f"{order.get('over_credit_amount', 0):.2f}."
+            if over_flag
+            else "Admin approved your pending order."
+        )
+        NotificationRepository.create(
+            user_id=rep_id,
+            type=NotificationType.ORDER_APPROVED,
+            title=f"Order {order.get('code') or ''} approved by admin",
+            body=body,
+            meta={**_order_meta(order),
+                  "over_credit_approved": bool(over_flag),
+                  "over_credit_amount": order.get("over_credit_amount", 0)},
+            link=f"/orders/{order['_id']}",
+        )
     elif new_status == "cancelled" and prev_status == "pending_admin_approval":
         NotificationRepository.create(
             user_id=rep_id,

@@ -12,9 +12,6 @@ class OrderLineCreate(BaseModel):
 
 
 class OrderLineAdjust(BaseModel):
-    """Accept-body entry — qty may be 0 (drop the line entirely) up to
-    qty_ordered. Cannot be used to add lines; every entry must match an
-    existing line on the order by (product_id, variant_id)."""
     product_id: str
     variant_id: str
     qty: int = Field(ge=0)
@@ -138,6 +135,13 @@ class Order(BaseModel):
     # --- Credit terms snapshot (from store at order create) ---
     credit_period_days: int = 30
     payment_due_date: datetime | None = None
+
+    # --- Over-credit approval flag ---
+    over_credit_approved: bool = False
+    over_credit_amount: float = 0.0
+    over_credit_approved_at: datetime | None = None
+    over_credit_approved_by_id: str | None = None
+    over_credit_approved_by_name: str | None = None
 
     # --- Policy snapshots (from store at order create) ---
     is_free_cancellation: bool = True

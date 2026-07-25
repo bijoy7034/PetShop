@@ -8,6 +8,18 @@ from helpers.mongo import oid_or_none, to_public_doc
 from repository.counter_repo import next_store_code
 
 
+def _with_credit_state(doc):
+    """Attach derived credit-exposure fields to a Store dict. Kept out
+    of the stored doc so it can't drift from credit_limit/credit_used."""
+    if not doc:
+        return doc
+    limit = float(doc.get("credit_limit") or 0)
+    used = float(doc.get("credit_used") or 0)
+    doc["available_credit"] = round(limit - used, 2)
+    doc["is_over_credit_limit"] = used > limit + 1e-6
+    return doc
+
+
 class StoreRepository:
     @staticmethod
     def _coll():
@@ -25,7 +37,9 @@ class StoreRepository:
         oid = oid_or_none(store_id)
         if oid is None:
             return None
-        return to_public_doc(StoreRepository._coll().find_one({"_id": oid}))
+        return _with_credit_state(
+            to_public_doc(StoreRepository._coll().find_one({"_id": oid}))
+        )
 
     @staticmethod
     def districts_for_rep(sales_rep_id):
@@ -57,7 +71,7 @@ class StoreRepository:
             .skip(skip)
             .limit(limit)
         )
-        items = [to_public_doc(d) for d in cur]
+        items = [_with_credit_state(to_public_doc(d)) for d in cur]
         total = StoreRepository._coll().count_documents(q)
         return items, total
 
@@ -109,7 +123,7 @@ class StoreRepository:
         }
         res = StoreRepository._coll().insert_one(doc)
         doc["_id"] = str(res.inserted_id)
-        return to_public_doc(doc)
+        return _with_credit_state(to_public_doc(doc))
 
     @staticmethod
     def assign(store_id, sales_rep_id, sales_rep_name):
