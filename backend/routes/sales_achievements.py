@@ -32,14 +32,9 @@ def _current_value(rep_id, metric, start, end):
     """Recompute the rep's current value for a given metric across the
     achievement window. Uses the same aggregation the analytics service
     already provides."""
-    m = str(metric)
-    if m == AchievementMetric.ORDERS_PLACED.value:
-        # Separate query — this metric counts orders regardless of
-        # acceptance status, so _rep_totals (counted-statuses only) is
-        # the wrong shape.
-        return float(analytics.orders_placed_by_rep(rep_id, start, end))
     totals = analytics._rep_totals(rep_id, start, end)
-    if m == AchievementMetric.ORDERS_COMPLETED.value:
+    m = str(metric)
+    if m == AchievementMetric.ORDERS_ACCEPTED.value:
         return float(totals["orders"])
     if m == AchievementMetric.REVENUE_GENERATED.value:
         return float(totals["revenue"])

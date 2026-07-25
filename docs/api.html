@@ -1319,7 +1319,7 @@ top_n_reps      1-50 (default 20)</code></pre>
   "visit_modes": ["in_store", "remote"],
   "visit_outcomes": ["order_placed", "no_order"],
   "achievement_periods": ["daily", "weekly", "monthly"],
-  "achievement_metrics": ["orders_completed", "revenue_generated",
+  "achievement_metrics": ["orders_accepted", "revenue_generated",
                           "stores_visited", "conversion_rate"],
   "achievement_progress_statuses": ["in_progress", "completed", "claimed"],
   "user_roles": ["admin", "office_staff", "sales_rep"]
@@ -1679,8 +1679,7 @@ page, page_size (page_size ≤ 200)</code></pre>
   <div>
     <h3>AchievementMetric</h3>
     <ul>
-      <li><code>orders_placed</code> — <span class="muted">every non-cancelled order the rep created (rewards activity)</span></li>
-      <li><code>orders_completed</code> — <span class="muted">accepted+ orders only (rewards fulfilled business)</span></li>
+      <li><code>orders_accepted</code> — <span class="muted">counts orders in accepted / packing / out_for_delivery / delivered (excludes placed, pending_admin_approval, delayed, cancelled)</span></li>
       <li><code>revenue_generated</code></li>
       <li><code>stores_visited</code></li>
       <li><code>conversion_rate</code> — <span class="muted">% (orders/visits × 100)</span></li>

@@ -339,23 +339,6 @@ def stores_visited_by_rep(rep_id, from_dt, to_dt):
     return len(ids)
 
 
-def orders_placed_by_rep(rep_id, from_dt, to_dt):
-    """Count every order the rep placed in the range, excluding
-    cancelled/rejected. Used by the ORDERS_PLACED achievement metric —
-    rewards raw activity (including pending approvals and placed-but-
-    not-yet-accepted orders), unlike ORDERS_COMPLETED which requires
-    the order to have made it past acceptance."""
-    q = {
-        "status": {"$ne": "cancelled"},
-        "sales_rep_id": rep_id,
-    }
-    if from_dt or to_dt:
-        q["created_at"] = {}
-        if from_dt:
-            q["created_at"]["$gte"] = from_dt
-        if to_dt:
-            q["created_at"]["$lte"] = to_dt
-    return _orders_coll().count_documents(q)
 
 
 # --------- District analytics ---------
