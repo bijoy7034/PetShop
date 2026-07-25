@@ -692,6 +692,129 @@
   ::-webkit-scrollbar-track { background: var(--bg); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #262626; }
+
+  /* -------- Burger menu (mobile) -------- */
+  .menu-toggle {
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    width: 32px;
+    padding: 6px;
+    border-radius: 6px;
+    background: transparent;
+    align-items: stretch;
+  }
+  .menu-toggle span {
+    display: block;
+    width: 100%;
+    height: 1.5px;
+    background: var(--text);
+    transition: transform 0.3s, opacity 0.3s;
+  }
+  .menu-toggle.open span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+  .menu-toggle.open span:nth-child(2) { opacity: 0; }
+  .menu-toggle.open span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+
+  .mobile-menu {
+    position: fixed; inset: 0; z-index: 99;
+    background: rgba(5,5,5,0.98);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    padding: 100px 32px 40px;
+    display: flex; flex-direction: column; gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .mobile-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .mobile-menu a.mm-link {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px;
+    color: var(--text);
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mobile-menu .mm-ctas {
+    margin-top: 32px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .mobile-menu .btn { justify-content: center; padding: 14px 22px; font-size: 15px; }
+
+  /* -------- Mobile responsive tune-ups -------- */
+  @media (max-width: 900px) {
+    .menu-toggle { display: flex; }
+    .nav-cta { display: none; }
+  }
+
+  @media (max-width: 700px) {
+    .container { padding: 0 20px; }
+    section { padding: 70px 0; }
+    .nav-inner { padding: 14px 20px; }
+
+    .hero { padding: 60px 0 40px; }
+    .hero-inner { gap: 32px; }
+    .hero-canvas-wrap { height: 300px; }
+    .orbit.r1 { width: 220px; height: 220px; }
+    .orbit.r2 { width: 320px; height: 320px; }
+    .orbit.r3 { width: 420px; height: 420px; }
+    .hero-content h1 { margin: 16px 0 18px; }
+    .hero-p { font-size: 15px; margin-bottom: 28px; }
+    .hero-ctas .btn { padding: 11px 20px; font-size: 14px; }
+    .hero-caption { flex-direction: column; align-items: flex-start; gap: 14px; margin-top: 32px; }
+
+    .ticker { margin-top: 60px !important; padding: 18px 0; }
+    .ticker-item { font-size: 13px; }
+    .ticker-track { gap: 44px; }
+
+    .section-head { margin-bottom: 40px; }
+    .h-section { font-size: clamp(26px, 7vw, 40px); }
+    .p-lead { font-size: 15px; }
+
+    .features-grid { grid-template-columns: 1fr; }
+    .feature { padding: 26px 22px; min-height: 200px; }
+
+    .steps { gap: 16px; }
+    .step { padding: 22px; }
+    .step-num { font-size: 44px; margin-bottom: 14px; }
+    .step h3 { font-size: 20px; }
+
+    .showcase-row, .showcase-row.reverse { gap: 40px; margin-bottom: 80px; }
+    .showcase-copy h3 { font-size: 24px; margin: 12px 0 16px; }
+    .showcase-copy p { font-size: 15px; }
+    .ui-mock { padding: 16px; }
+    .ui-stats { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .ui-stat { padding: 8px 10px; }
+    .ui-stat .val { font-size: 18px; }
+    .ui-row { grid-template-columns: 1fr 50px 54px 16px; gap: 8px; font-size: 11px; padding: 8px 10px; }
+
+    .pricing-grid { gap: 14px; }
+    .plan { padding: 24px 20px; }
+    .plan-price .amt { font-size: 36px; }
+    .billing-toggle { margin: 20px 0 32px; }
+    .billing-toggle button { padding: 7px 16px; font-size: 12px; }
+
+    details.faq { padding: 18px 4px; }
+    details.faq summary { font-size: 15px; }
+    details.faq p { font-size: 14px; }
+
+    .cta { padding: 80px 0; }
+    .footer-grid { grid-template-columns: 1fr; gap: 32px; margin-bottom: 40px; }
+    .footer-bottom { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+    .brand { font-size: 15px; }
+    .brand-mark { width: 22px; height: 22px; }
+    .brand-mark::before { width: 6px; }
+    .brand-mark::after  { height: 6px; }
+  }
+
+  @media (max-width: 480px) {
+    .h-display { font-size: 30px; letter-spacing: -0.02em; }
+    .hero-canvas-wrap { height: 240px; }
+    .orbit.r1 { width: 170px; height: 170px; }
+    .orbit.r2 { width: 240px; height: 240px; }
+    .orbit.r3 { width: 320px; height: 320px; }
+  }
 </style>
 </head>
 <body>
@@ -703,7 +826,6 @@
 <nav>
   <div class="nav-inner">
     <a href="#top" class="brand">
-      <span class="brand-mark"></span>
       <span>MERXIO</span>
     </a>
     <div class="nav-links">
@@ -719,8 +841,24 @@
         Get started <span class="arrow">→</span>
       </a>
     </div>
+    <button class="menu-toggle" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </nav>
+
+<!-- Mobile menu (only visible <900px) -->
+<div class="mobile-menu" id="mobile-menu">
+  <a class="mm-link" href="#features">Product</a>
+  <a class="mm-link" href="#how">How it works</a>
+  <a class="mm-link" href="#pricing">Pricing</a>
+  <a class="mm-link" href="#faq">FAQ</a>
+  <a class="mm-link" href="contact.html">Contact</a>
+  <div class="mm-ctas">
+    <a href="#" class="btn btn-ghost">Sign in</a>
+    <a href="#pricing" class="btn btn-primary">Get started <span class="arrow">→</span></a>
+  </div>
+</div>
 
 <!-- ============ HERO ============ -->
 <section class="hero" id="top">
@@ -782,6 +920,110 @@
       <span class="ticker-item">AI-ASSISTED FORECASTS <span class="dot"></span></span>
       <span class="ticker-item">AUDIT-LOG <span class="dot"></span></span>
     </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section id="pricing" style="background: linear-gradient(180deg, var(--bg-1), transparent);">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Pricing</span>
+      <h2 class="h-section">Pay for the tier you use. Own it forever if you'd rather.</h2>
+      <p class="p-lead muted">
+        Every plan includes the full product. Tiers scale on
+        seats, stores, and support — not on the features you get to
+        touch.
+      </p>
+      <div class="billing-toggle">
+        <button class="active" data-bill="monthly">Monthly</button>
+        <button data-bill="yearly">Yearly <span class="save-tag">SAVE 20%</span></button>
+      </div>
+    </div>
+
+    <div class="pricing-grid reveal">
+      <!-- Starter -->
+      <div class="plan">
+        <div class="plan-name">Starter</div>
+        <div class="plan-tag">For teams of 1–3 field reps</div>
+        <div class="plan-price">
+          <span class="amt" data-price-monthly="₹2,999" data-price-yearly="₹2,399">₹2,999</span>
+          <span class="per">/ month</span>
+        </div>
+        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Start trial <span class="arrow">→</span></a></div>
+        <ul class="plan-list">
+          <li>Up to 3 sales reps</li>
+          <li>Up to 100 stores</li>
+          <li>Unlimited products &amp; orders</li>
+          <li>Full analytics + achievements</li>
+          <li>Email support</li>
+          <li class="off">Custom domain</li>
+          <li class="off">SLA</li>
+        </ul>
+      </div>
+
+      <!-- Growth (featured) -->
+      <div class="plan featured">
+        <div class="plan-name">Growth</div>
+        <div class="plan-tag">For scaling distribution teams</div>
+        <div class="plan-price">
+          <span class="amt" data-price-monthly="₹7,999" data-price-yearly="₹6,399">₹7,999</span>
+          <span class="per">/ month</span>
+        </div>
+        <div class="plan-cta"><a href="contact.html" class="btn btn-primary">Start trial <span class="arrow">→</span></a></div>
+        <ul class="plan-list">
+          <li>Up to 15 sales reps</li>
+          <li>Up to 1,000 stores</li>
+          <li>Unlimited products &amp; orders</li>
+          <li>Full analytics + achievements</li>
+          <li>Priority email + chat</li>
+          <li>Custom domain (yourbrand.merxio.ai)</li>
+          <li>Bi-weekly DB archives to your S3</li>
+        </ul>
+      </div>
+
+      <!-- Scale -->
+      <div class="plan">
+        <div class="plan-name">Scale</div>
+        <div class="plan-tag">For 15+ reps &amp; multi-warehouse ops</div>
+        <div class="plan-price">
+          <span class="amt" data-price-monthly="₹19,999" data-price-yearly="₹15,999">₹19,999</span>
+          <span class="per">/ month</span>
+        </div>
+        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Talk to sales <span class="arrow">→</span></a></div>
+        <ul class="plan-list">
+          <li>Unlimited reps &amp; stores</li>
+          <li>Custom domain</li>
+          <li>Priority chat + phone</li>
+          <li>Bi-weekly DB archives + on-demand dumps</li>
+          <li>SSO / SAML (Q4)</li>
+          <li>99.9% uptime SLA</li>
+          <li>Onboarding &amp; migration help</li>
+        </ul>
+      </div>
+
+      <!-- One-time -->
+      <div class="plan">
+        <div class="plan-name">Sovereign</div>
+        <div class="plan-tag">One-time payment. Self-hosted.</div>
+        <div class="plan-price">
+          <span class="amt">₹4,99,000</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-3); margin-top: -4px;">Perpetual license · one-time</div>
+        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Contact us <span class="arrow">→</span></a></div>
+        <ul class="plan-list">
+          <li>Run Merxio on your infrastructure</li>
+          <li>Complete source access</li>
+          <li>Unlimited reps, stores, orders — no seat cap</li>
+          <li>1 year updates + support included</li>
+          <li>Renewable at 20% / year</li>
+          <li>Perfect for enterprises with data-residency requirements</li>
+        </ul>
+      </div>
+    </div>
+
+    <p style="text-align: center; color: var(--text-3); margin-top: 40px; font-size: 13px;">
+      All plans include a 14-day free trial. No credit card required.
+    </p>
   </div>
 </section>
 
@@ -1041,110 +1283,6 @@
   </div>
 </section>
 
-<!-- ============ PRICING ============ -->
-<section id="pricing" style="background: linear-gradient(180deg, var(--bg-1), transparent);">
-  <div class="container">
-    <div class="section-head reveal">
-      <span class="eyebrow">Pricing</span>
-      <h2 class="h-section">Pay for the tier you use. Own it forever if you'd rather.</h2>
-      <p class="p-lead muted">
-        Every plan includes the full product. Tiers scale on
-        seats, stores, and support — not on the features you get to
-        touch.
-      </p>
-      <div class="billing-toggle">
-        <button class="active" data-bill="monthly">Monthly</button>
-        <button data-bill="yearly">Yearly <span class="save-tag">SAVE 20%</span></button>
-      </div>
-    </div>
-
-    <div class="pricing-grid reveal">
-      <!-- Starter -->
-      <div class="plan">
-        <div class="plan-name">Starter</div>
-        <div class="plan-tag">For teams of 1–3 field reps</div>
-        <div class="plan-price">
-          <span class="amt" data-price-monthly="₹2,999" data-price-yearly="₹2,399">₹2,999</span>
-          <span class="per">/ month</span>
-        </div>
-        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Start trial <span class="arrow">→</span></a></div>
-        <ul class="plan-list">
-          <li>Up to 3 sales reps</li>
-          <li>Up to 100 stores</li>
-          <li>Unlimited products &amp; orders</li>
-          <li>Full analytics + achievements</li>
-          <li>Email support</li>
-          <li class="off">Custom domain</li>
-          <li class="off">SLA</li>
-        </ul>
-      </div>
-
-      <!-- Growth (featured) -->
-      <div class="plan featured">
-        <div class="plan-name">Growth</div>
-        <div class="plan-tag">For scaling distribution teams</div>
-        <div class="plan-price">
-          <span class="amt" data-price-monthly="₹7,999" data-price-yearly="₹6,399">₹7,999</span>
-          <span class="per">/ month</span>
-        </div>
-        <div class="plan-cta"><a href="contact.html" class="btn btn-primary">Start trial <span class="arrow">→</span></a></div>
-        <ul class="plan-list">
-          <li>Up to 15 sales reps</li>
-          <li>Up to 1,000 stores</li>
-          <li>Unlimited products &amp; orders</li>
-          <li>Full analytics + achievements</li>
-          <li>Priority email + chat</li>
-          <li>Custom domain (yourbrand.merxio.ai)</li>
-          <li>Bi-weekly DB archives to your S3</li>
-        </ul>
-      </div>
-
-      <!-- Scale -->
-      <div class="plan">
-        <div class="plan-name">Scale</div>
-        <div class="plan-tag">For 15+ reps &amp; multi-warehouse ops</div>
-        <div class="plan-price">
-          <span class="amt" data-price-monthly="₹19,999" data-price-yearly="₹15,999">₹19,999</span>
-          <span class="per">/ month</span>
-        </div>
-        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Talk to sales <span class="arrow">→</span></a></div>
-        <ul class="plan-list">
-          <li>Unlimited reps &amp; stores</li>
-          <li>Custom domain</li>
-          <li>Priority chat + phone</li>
-          <li>Bi-weekly DB archives + on-demand dumps</li>
-          <li>SSO / SAML (Q4)</li>
-          <li>99.9% uptime SLA</li>
-          <li>Onboarding &amp; migration help</li>
-        </ul>
-      </div>
-
-      <!-- One-time -->
-      <div class="plan">
-        <div class="plan-name">Sovereign</div>
-        <div class="plan-tag">One-time payment. Self-hosted.</div>
-        <div class="plan-price">
-          <span class="amt">₹4,99,000</span>
-        </div>
-        <div style="font-size: 12px; color: var(--text-3); margin-top: -4px;">Perpetual license · one-time</div>
-        <div class="plan-cta"><a href="contact.html" class="btn btn-ghost">Contact us <span class="arrow">→</span></a></div>
-        <ul class="plan-list">
-          <li>Run Merxio on your infrastructure</li>
-          <li>Complete source access</li>
-          <li>Unlimited reps, stores, orders — no seat cap</li>
-          <li>1 year updates + support included</li>
-          <li>Renewable at 20% / year</li>
-          <li>Perfect for enterprises with data-residency requirements</li>
-        </ul>
-      </div>
-    </div>
-
-    <p style="text-align: center; color: var(--text-3); margin-top: 40px; font-size: 13px;">
-      All plans include a 14-day free trial. No credit card required.
-    </p>
-  </div>
-</section>
-
 <!-- ============ FAQ ============ -->
 <section id="faq">
   <div class="container">
@@ -1210,7 +1348,7 @@
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
-        <a href="#top" class="brand"><span class="brand-mark"></span><span>MERXIO</span></a>
+        <a href="#top" class="brand"><span>MERXIO</span></a>
         <p>The operating system for wholesale distributors. Billing, inventory, orders, analytics — in one AI-assisted platform.</p>
       </div>
       <div class="footer-col">
@@ -1256,6 +1394,28 @@
     document.documentElement.style.setProperty('--mx', e.clientX + 'px');
     document.documentElement.style.setProperty('--my', e.clientY + 'px');
   });
+
+  // Mobile burger menu
+  (function initMobileMenu() {
+    const toggle = document.querySelector('.menu-toggle');
+    const menu = document.getElementById('mobile-menu');
+    if (!toggle || !menu) return;
+    const close = () => {
+      toggle.classList.remove('open');
+      menu.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+      document.body.style.overflow = '';
+    };
+    toggle.addEventListener('click', () => {
+      const open = !toggle.classList.contains('open');
+      toggle.classList.toggle('open', open);
+      menu.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+      document.body.style.overflow = open ? 'hidden' : '';
+    });
+    menu.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  })();
 
   // Reveal-on-scroll
   const io = new IntersectionObserver((entries) => {

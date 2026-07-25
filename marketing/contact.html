@@ -375,6 +375,81 @@
   /* Reveal */
   .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.9s ease, transform 0.9s ease; }
   .reveal.in { opacity: 1; transform: translateY(0); }
+
+  /* -------- Burger menu -------- */
+  .menu-toggle {
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    width: 32px;
+    padding: 6px;
+    border-radius: 6px;
+    background: transparent;
+    align-items: stretch;
+  }
+  .menu-toggle span {
+    display: block; width: 100%; height: 1.5px;
+    background: var(--text);
+    transition: transform 0.3s, opacity 0.3s;
+  }
+  .menu-toggle.open span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+  .menu-toggle.open span:nth-child(2) { opacity: 0; }
+  .menu-toggle.open span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+
+  .mobile-menu {
+    position: fixed; inset: 0; z-index: 99;
+    background: rgba(5,5,5,0.98);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    padding: 100px 32px 40px;
+    display: flex; flex-direction: column; gap: 8px;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-8px);
+    transition: opacity 0.3s, transform 0.3s;
+  }
+  .mobile-menu.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .mobile-menu a.mm-link {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px;
+    color: var(--text);
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mobile-menu .mm-ctas {
+    margin-top: 32px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .mobile-menu .btn { justify-content: center; padding: 14px 22px; font-size: 15px; }
+
+  @media (max-width: 900px) {
+    .menu-toggle { display: flex; }
+    .nav-cta { display: none; }
+  }
+
+  @media (max-width: 700px) {
+    .container { padding: 0 20px; }
+    .nav-inner { padding: 14px 20px; }
+    .contact-hero { padding: 70px 0 40px; }
+    .contact-hero h1 { font-size: clamp(32px, 8vw, 48px); margin: 16px 0 16px; }
+    .contact-hero p { font-size: 15px; }
+    .contact-grid { padding: 32px 0 80px; gap: 32px; }
+    .form-card { padding: 24px 22px; }
+    .form-card h2 { font-size: 22px; }
+    .form-card > p { margin-bottom: 24px; }
+    .radio-group { grid-template-columns: 1fr 1fr; }
+    .form-row { grid-template-columns: 1fr; gap: 14px; margin-bottom: 14px; }
+    .field { margin-bottom: 14px; }
+    .field input, .field select, .field textarea { padding: 12px 14px; font-size: 14px; }
+    .submit-row { flex-direction: column; align-items: stretch; gap: 16px; }
+    .submit-row .note { max-width: 100%; }
+    .submit-row .btn { justify-content: center; }
+    .info-card { padding: 20px; }
+    .info-card .val { font-size: 18px; }
+    .brand { font-size: 15px; }
+  }
+
+  @media (max-width: 480px) {
+    .radio-group { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -386,7 +461,6 @@
 <nav>
   <div class="nav-inner">
     <a href="index.html" class="brand">
-      <span class="brand-mark"></span>
       <span>MERXIO</span>
     </a>
     <div class="nav-links">
@@ -402,8 +476,23 @@
         Get started <span class="arrow">→</span>
       </a>
     </div>
+    <button class="menu-toggle" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </nav>
+
+<div class="mobile-menu" id="mobile-menu">
+  <a class="mm-link" href="index.html#features">Product</a>
+  <a class="mm-link" href="index.html#how">How it works</a>
+  <a class="mm-link" href="index.html#pricing">Pricing</a>
+  <a class="mm-link" href="index.html#faq">FAQ</a>
+  <a class="mm-link" href="contact.html">Contact</a>
+  <div class="mm-ctas">
+    <a href="#" class="btn btn-ghost">Sign in</a>
+    <a href="index.html#pricing" class="btn btn-primary">Get started <span class="arrow">→</span></a>
+  </div>
+</div>
 
 <!-- Contact hero -->
 <section class="contact-hero">
@@ -599,6 +688,28 @@
     document.documentElement.style.setProperty('--mx', e.clientX + 'px');
     document.documentElement.style.setProperty('--my', e.clientY + 'px');
   });
+
+  // Mobile burger menu
+  (function initMobileMenu() {
+    const toggle = document.querySelector('.menu-toggle');
+    const menu = document.getElementById('mobile-menu');
+    if (!toggle || !menu) return;
+    const close = () => {
+      toggle.classList.remove('open');
+      menu.classList.remove('open');
+      toggle.setAttribute('aria-expanded', 'false');
+      document.body.style.overflow = '';
+    };
+    toggle.addEventListener('click', () => {
+      const open = !toggle.classList.contains('open');
+      toggle.classList.toggle('open', open);
+      menu.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+      document.body.style.overflow = open ? 'hidden' : '';
+    });
+    menu.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  })();
 
   // Reveal
   const io = new IntersectionObserver((entries) => {
