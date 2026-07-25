@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — Merxio</title>
+<meta name="description" content="Talk to Merxio. Sales, support, or a live product walkthrough — we usually reply within one business day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050505;
+    --bg-1: #0a0a0a;
+    --bg-2: #0f0f0f;
+    --card: #101010;
+    --border: #1a1a1a;
+    --border-soft: #141414;
+    --text: #ffffff;
+    --text-1: #d4d4d4;
+    --text-2: #8a8a8a;
+    --text-3: #545454;
+    --grid-line: rgba(255,255,255,0.03);
+    --radius-lg: 20px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-weight: 400;
+    font-feature-settings: "cv02","cv03","cv04","cv11";
+    line-height: 1.55;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  ::selection { background: var(--text); color: #000; }
+
+  /* Cursor glow + grid */
+  #cursor-glow {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(500px circle at var(--mx, 50%) var(--my, 50%),
+                                rgba(255,255,255,0.06), transparent 60%);
+  }
+  .grid-bg {
+    position: fixed; inset: 0; pointer-events: none; z-index: -1;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse at 50% 0%, rgba(0,0,0,0.9), transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 0%, rgba(0,0,0,0.9), transparent 70%);
+  }
+
+  /* --- shared bits --- */
+  .container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+  .eyebrow {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    color: var(--text-2);
+    text-transform: uppercase;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before {
+    content: ""; width: 24px; height: 1px; background: var(--text-2);
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 12px 22px;
+    border-radius: 999px;
+    font-weight: 500; font-size: 14px;
+    letter-spacing: -0.005em;
+    transition: transform 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+  .btn-primary {
+    background: var(--text); color: #000; border: 1px solid var(--text);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 40px rgba(255,255,255,0.25); }
+  .btn-ghost {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.2); }
+  .btn .arrow { transition: transform 0.2s; display: inline-block; }
+  .btn:hover .arrow { transform: translateX(4px); }
+
+  /* Nav */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(5,5,5,0.6);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 32px;
+    max-width: 1440px; margin: 0 auto;
+  }
+  .brand {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 18px;
+    letter-spacing: 0.02em; display: flex; align-items: center; gap: 10px;
+  }
+  .brand-mark {
+    width: 26px; height: 26px; border: 1.5px solid var(--text); border-radius: 6px;
+    display: grid; place-items: center; position: relative;
+  }
+  .brand-mark::before, .brand-mark::after { content: ""; position: absolute; background: var(--text); }
+  .brand-mark::before { width: 8px; height: 1.5px; }
+  .brand-mark::after  { width: 1.5px; height: 8px; }
+  .nav-links { display: flex; gap: 32px; align-items: center; }
+  .nav-links a { font-size: 14px; color: var(--text-1); transition: color 0.2s; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta { display: flex; gap: 12px; align-items: center; }
+  @media (max-width: 900px) { .nav-links { display: none; } }
+
+  /* Hero contact */
+  .contact-hero {
+    padding: 120px 0 60px;
+    position: relative;
+  }
+  .contact-hero h1 {
+    font-size: clamp(48px, 6vw, 84px);
+    letter-spacing: -0.035em;
+    background: linear-gradient(180deg, #fff, #8a8a8a 130%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin: 22px 0 20px;
+    max-width: 780px;
+  }
+  .contact-hero p {
+    font-size: 18px; color: var(--text-1);
+    max-width: 620px; line-height: 1.65;
+  }
+
+  /* Two-column: form + info */
+  .contact-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 60px;
+    padding: 60px 0 120px;
+    align-items: flex-start;
+  }
+  @media (max-width: 900px) {
+    .contact-grid { grid-template-columns: 1fr; gap: 40px; }
+  }
+
+  /* Form card */
+  .form-card {
+    background: linear-gradient(180deg, var(--card), var(--bg-1));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 36px;
+    position: relative;
+    overflow: hidden;
+  }
+  .form-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(600px circle at top right, rgba(255,255,255,0.03), transparent 40%);
+    pointer-events: none;
+  }
+  .form-card h2 {
+    font-size: 28px; margin-bottom: 8px;
+  }
+  .form-card > p {
+    color: var(--text-2); font-size: 14px; margin-bottom: 32px;
+  }
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .field label {
+    font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-2); font-family: 'Space Grotesk', sans-serif;
+    font-weight: 500;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 15px;
+    transition: border-color 0.2s, background 0.2s;
+    outline: none;
+  }
+  .field textarea { resize: vertical; min-height: 130px; font-family: inherit; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--text);
+    background: var(--bg-1);
+  }
+  .field input::placeholder, .field textarea::placeholder { color: var(--text-3); }
+
+  .radio-group {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  }
+  @media (max-width: 500px) { .radio-group { grid-template-columns: 1fr 1fr; } }
+  .radio {
+    position: relative;
+  }
+  .radio input {
+    position: absolute; opacity: 0; pointer-events: none;
+  }
+  .radio label {
+    display: block;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    color: var(--text-1);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    text-transform: none; letter-spacing: 0;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .radio input:checked + label {
+    background: var(--text);
+    color: #000;
+    border-color: var(--text);
+  }
+
+  .field-group-title {
+    color: var(--text-2); font-size: 11px; letter-spacing: 0.2em;
+    text-transform: uppercase; margin: 8px 0 12px;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 500;
+  }
+
+  .submit-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .submit-row .note {
+    font-size: 12px; color: var(--text-3);
+    max-width: 260px;
+  }
+
+  /* Info column */
+  .info-col { display: flex; flex-direction: column; gap: 20px; }
+  .info-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    transition: border-color 0.3s;
+  }
+  .info-card:hover { border-color: rgba(255,255,255,0.15); }
+  .info-card .h {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-2);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 14px;
+  }
+  .info-card .h svg {
+    width: 18px; height: 18px; stroke: var(--text);
+  }
+  .info-card .val {
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+  .info-card .val a { border-bottom: 1px solid var(--border); transition: border-color 0.2s; }
+  .info-card .val a:hover { border-color: var(--text); }
+  .info-card .sub {
+    color: var(--text-2); font-size: 13px; line-height: 1.5;
+  }
+
+  /* Response-time badge */
+  .response-badge {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-1);
+    margin-bottom: 24px;
+  }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #6bd280;
+    position: relative;
+  }
+  .pulse-dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 1px solid rgba(107, 210, 128, 0.4);
+    animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.5); opacity: 1; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
+
+  /* Success state */
+  .success-state {
+    display: none;
+    text-align: center;
+    padding: 40px 20px;
+  }
+  .success-state.show { display: block; animation: fadeIn 0.5s ease; }
+  .success-state .check {
+    width: 72px; height: 72px;
+    margin: 0 auto 24px;
+    border: 1.5px solid var(--text);
+    border-radius: 50%;
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .success-state .check::before {
+    content: "";
+    position: absolute; inset: -6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 50%;
+    animation: pulse-big 2s ease-out infinite;
+  }
+  @keyframes pulse-big {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+  .success-state h3 { font-size: 26px; margin-bottom: 12px; }
+  .success-state p { color: var(--text-2); font-size: 15px; max-width: 400px; margin: 0 auto; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Footer */
+  footer {
+    padding: 40px 0;
+    border-top: 1px solid var(--border-soft);
+    color: var(--text-3);
+    font-size: 12px;
+    margin-top: auto;
+  }
+  .footer-inner {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 16px;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.02em; }
+
+  /* Reveal */
+  .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.9s ease, transform 0.9s ease; }
+  .reveal.in { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="cursor-glow"></div>
+<div class="grid-bg"></div>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="brand">
+      <span class="brand-mark"></span>
+      <span>MERXIO</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html#features">Product</a>
+      <a href="index.html#how">How it works</a>
+      <a href="index.html#pricing">Pricing</a>
+      <a href="index.html#faq">FAQ</a>
+      <a href="contact.html">Contact</a>
+    </div>
+    <div class="nav-cta">
+      <a href="#" class="btn btn-ghost" style="padding: 8px 16px; font-size: 13px;">Sign in</a>
+      <a href="index.html#pricing" class="btn btn-primary" style="padding: 8px 18px; font-size: 13px;">
+        Get started <span class="arrow">→</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Contact hero -->
+<section class="contact-hero">
+  <div class="container reveal">
+    <div class="response-badge">
+      <span class="pulse-dot"></span>
+      <span>Usually replies within 1 business day</span>
+    </div>
+    <span class="eyebrow">Talk to us</span>
+    <h1>Let's build something that actually ships.</h1>
+    <p>
+      Sales, support, security questions, or a live walkthrough — pick
+      what fits and drop us a line. Real humans read every message.
+    </p>
+  </div>
+</section>
+
+<!-- Contact grid -->
+<div class="container">
+  <div class="contact-grid">
+    <!-- Form -->
+    <div class="form-card reveal">
+      <form id="contact-form">
+        <h2>Send us a message</h2>
+        <p>The more you tell us up front, the faster we can help.</p>
+
+        <div class="field-group-title">What's this about?</div>
+        <div class="radio-group" style="margin-bottom: 24px;">
+          <div class="radio">
+            <input type="radio" id="p-demo" name="purpose" value="demo" checked>
+            <label for="p-demo">Product demo</label>
+          </div>
+          <div class="radio">
+            <input type="radio" id="p-sales" name="purpose" value="sales">
+            <label for="p-sales">Sales / pricing</label>
+          </div>
+          <div class="radio">
+            <input type="radio" id="p-support" name="purpose" value="support">
+            <label for="p-support">Support</label>
+          </div>
+          <div class="radio">
+            <input type="radio" id="p-selfhost" name="purpose" value="selfhost">
+            <label for="p-selfhost">Self-host / Sovereign</label>
+          </div>
+          <div class="radio">
+            <input type="radio" id="p-partner" name="purpose" value="partner">
+            <label for="p-partner">Partnership</label>
+          </div>
+          <div class="radio">
+            <input type="radio" id="p-other" name="purpose" value="other">
+            <label for="p-other">Something else</label>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="name">Full name</label>
+            <input id="name" name="name" type="text" required placeholder="e.g. Priya Ramanathan">
+          </div>
+          <div class="field">
+            <label for="company">Company</label>
+            <input id="company" name="company" type="text" placeholder="e.g. Alpha Pet Distributors">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="email">Work email</label>
+            <input id="email" name="email" type="email" required placeholder="priya@company.com">
+          </div>
+          <div class="field">
+            <label for="phone">Phone (optional)</label>
+            <input id="phone" name="phone" type="tel" placeholder="+91 9876 543210">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="team-size">Team size</label>
+            <select id="team-size" name="team_size">
+              <option value="1-5">1–5 people</option>
+              <option value="6-15" selected>6–15 people</option>
+              <option value="16-50">16–50 people</option>
+              <option value="51-200">51–200 people</option>
+              <option value="200+">200+ people</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="industry">Industry</label>
+            <select id="industry" name="industry">
+              <option>Pet-shop wholesale</option>
+              <option>FMCG distribution</option>
+              <option>Pharma wholesale</option>
+              <option>Hardware / building supplies</option>
+              <option>Textile / apparel</option>
+              <option>Other B2B distribution</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="message">What would you like to discuss?</label>
+          <textarea id="message" name="message" required placeholder="Current stack, pain points, timeline, anything else that helps us prepare…"></textarea>
+        </div>
+
+        <div class="submit-row">
+          <div class="note">
+            By submitting, you agree we'll email you back. We don't share your details.
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Send message <span class="arrow">→</span>
+          </button>
+        </div>
+      </form>
+
+      <div id="success" class="success-state">
+        <div class="check">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 12l6 6 10-14"/>
+          </svg>
+        </div>
+        <h3>Message sent.</h3>
+        <p>Thanks — we'll be in touch within one business day. If it's urgent, drop a note to <a href="mailto:hello@merxio.ai" style="color: var(--text); border-bottom: 1px solid var(--border);">hello@merxio.ai</a>.</p>
+      </div>
+    </div>
+
+    <!-- Info column -->
+    <div class="info-col">
+      <div class="info-card reveal">
+        <div class="h">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M4 6h16v12H4z"/><path d="M4 6l8 7 8-7"/></svg>
+          Email
+        </div>
+        <div class="val"><a href="mailto:hello@merxio.ai">hello@merxio.ai</a></div>
+        <div class="sub">General enquiries, sales, and product demos.</div>
+      </div>
+
+      <div class="info-card reveal">
+        <div class="h">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7 12.8 12.8 0 00.7 2.8 2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.5 12.8 12.8 0 002.8.7 2 2 0 011.7 2z"/></svg>
+          Phone / WhatsApp
+        </div>
+        <div class="val"><a href="tel:+919999999999">+91 99999 99999</a></div>
+        <div class="sub">Weekdays 10 AM – 7 PM IST. WhatsApp OK for quick things.</div>
+      </div>
+
+      <div class="info-card reveal">
+        <div class="h">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Office
+        </div>
+        <div class="val">Bengaluru, India</div>
+        <div class="sub">Merxio Technologies Pvt. Ltd.<br>Registered in Karnataka.</div>
+      </div>
+
+      <div class="info-card reveal">
+        <div class="h">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          Response times
+        </div>
+        <div class="val" style="font-size: 15px; line-height: 1.7;">
+          Sales — under 4 hours<br>
+          Support — under 24 hours<br>
+          Emergencies — 15 min (paid plans)
+        </div>
+      </div>
+
+      <div class="info-card reveal">
+        <div class="h">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M14 21a2 2 0 01-4 0"/></svg>
+          Prefer async?
+        </div>
+        <div class="val" style="font-size: 15px; line-height: 1.7;">
+          Book a 20-min slot directly →<br>
+          <a href="#" style="font-size: 13px; color: var(--text-2);">cal.com/merxio</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <div class="container footer-inner">
+    <span>© Merxio Technologies. All rights reserved.</span>
+    <span class="mono">merxio.ai</span>
+  </div>
+</footer>
+
+<script>
+  // Cursor glow
+  document.addEventListener('mousemove', (e) => {
+    document.documentElement.style.setProperty('--mx', e.clientX + 'px');
+    document.documentElement.style.setProperty('--my', e.clientY + 'px');
+  });
+
+  // Reveal
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // Form submit (client-side only for now — swap the endpoint in when wired)
+  const form = document.getElementById('contact-form');
+  const success = document.getElementById('success');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    // TODO: POST to /api/contact or your CRM webhook
+    form.style.display = 'none';
+    success.classList.add('show');
+    window.scrollTo({ top: form.offsetTop - 80, behavior: 'smooth' });
+  });
+</script>
+</body>
+</html>
