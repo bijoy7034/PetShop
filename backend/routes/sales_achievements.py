@@ -300,14 +300,22 @@ async def list_achievement_progress(
         None, alias="status",
         description="in_progress | completed | claimed | redeemed",
     ),
+    hydrate: bool = Query(
+        True,
+        description="Recompute current_value from live orders/visits per row. "
+                    "Costs one aggregation per row; set false for a raw list "
+                    "of only the persisted state.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     _=Depends(require_office),
 ):
     """Office/admin view of every rep's progress on one achievement.
     Filter by `status=claimed` to see the queue waiting to be redeemed.
-    Progress rows are returned as-persisted (no live re-hydration) so
-    admin decisions match what the rep saw when they claimed."""
+
+    By default, `current_value` on every row is recomputed live so the
+    office view matches what each rep sees — same source of truth as
+    GET /achievements/mine. Set `hydrate=false` to skip re-aggregation."""
     a = SalesAchievementRepository.by_id(achievement_id)
     if not a:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Achievement not found")
@@ -317,6 +325,8 @@ async def list_achievement_progress(
         skip=(page - 1) * page_size,
         limit=page_size,
     )
+    if hydrate:
+        items = [_hydrate_progress(row, a) for row in items]
     return AchievementProgressListResponse(
         items=items, total=total, page=page, page_size=page_size,
     )
