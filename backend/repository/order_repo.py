@@ -79,6 +79,7 @@ class OrderRepository:
         notes,
         status=OrderStatus.PLACED.value,
         expected_delivery_date=None,
+        sibling_order_id=None,
     ):
         """Insert an order and snapshot every store field that could later
         change (name, address, district, credit terms, cancellation policy)
@@ -136,12 +137,35 @@ class OrderRepository:
             "is_free_cancellation": bool(store.get("is_free_cancellation", True)),
             "cancellation_charges": float(store.get("cancellation_charges") or 0.0),
             "return_window_days": int(store.get("return_window_days") or 7),
+            "sibling_order_id": sibling_order_id,
+            "ready_to_submit_at": None,
             "created_at": now,
             "updated_at": now,
         }
         res = OrderRepository._coll().insert_one(doc)
         doc["_id"] = str(res.inserted_id)
         return _with_outstanding(doc)
+
+    @staticmethod
+    def set_sibling(order_id, sibling_id):
+        """Cross-link two sibling orders after both have been inserted."""
+        oid = oid_or_none(order_id)
+        if oid is None:
+            return None
+        OrderRepository._coll().update_one(
+            {"_id": oid},
+            {"$set": {"sibling_order_id": sibling_id, "updated_at": now_utc()}},
+        )
+        return OrderRepository.by_id(order_id)
+
+    @staticmethod
+    def find_waiting_for_stock():
+        """Every order currently held for stock, FIFO. Used by the
+        auto-promotion scan when stock arrives."""
+        cur = OrderRepository._coll().find(
+            {"status": OrderStatus.WAITING_FOR_STOCK.value}
+        ).sort("created_at", 1)
+        return [_with_outstanding(d) for d in cur]
 
     @staticmethod
     def record_payment(order_id, amount, method, notes, actor):

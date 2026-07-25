@@ -2,6 +2,14 @@ from enum import StrEnum
 
 
 class OrderStatus(StrEnum):
+    # Rep placed the order but one or more lines had insufficient stock.
+    # No inventory reservation, no credit hold. When stock arrives,
+    # promote_waiting_for_stock lifts the order to READY_TO_SUBMIT.
+    WAITING_FOR_STOCK = "waiting_for_stock"
+    # Stock is now available and reserved. Rep still needs to actively
+    # submit the order — auto-promotion won't push into the fulfilment
+    # pipeline in case the rep or the store changed their mind.
+    READY_TO_SUBMIT = "ready_to_submit"
     PENDING_ADMIN_APPROVAL = "pending_admin_approval"
     PLACED = "placed"
     ACCEPTED = "accepted"
@@ -44,6 +52,16 @@ _ACTIVE = (
 )
 
 ORDER_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    OrderStatus.WAITING_FOR_STOCK.value: (
+        OrderStatus.READY_TO_SUBMIT.value,
+        OrderStatus.CANCELLED.value,
+    ),
+    OrderStatus.READY_TO_SUBMIT.value: (
+        OrderStatus.PLACED.value,
+        OrderStatus.PENDING_ADMIN_APPROVAL.value,  # over-credit path
+        OrderStatus.WAITING_FOR_STOCK.value,       # stock re-lost before submit
+        OrderStatus.CANCELLED.value,
+    ),
     OrderStatus.PENDING_ADMIN_APPROVAL.value: (
         OrderStatus.PLACED.value,
         OrderStatus.CANCELLED.value,

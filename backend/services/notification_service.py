@@ -93,6 +93,52 @@ def _order_meta(order):
     }
 
 
+def notify_order_waiting_for_stock(*, order):
+    """Rep gets one notification per backorder placed so they know
+    what's parked. Body names the first out-of-stock item as a hint."""
+    rep_id = order.get("sales_rep_id")
+    if not rep_id:
+        return
+    lines = order.get("lines") or []
+    hint = ""
+    if lines:
+        first = lines[0]
+        others = f" and {len(lines) - 1} more" if len(lines) > 1 else ""
+        hint = (
+            f" Waiting on {first.get('product_name')} "
+            f"({first.get('variant_label') or 'default'}){others}."
+        )
+    NotificationRepository.create(
+        user_id=rep_id,
+        type=NotificationType.ORDER_WAITING_FOR_STOCK,
+        title=f"Order {order.get('code') or ''} is waiting for stock",
+        body=(
+            f"You'll be notified as soon as we can fulfil it.{hint}"
+        ),
+        meta=_order_meta(order),
+        link=f"/orders/{order['_id']}",
+    )
+
+
+def notify_order_ready_to_submit(*, order):
+    """Auto-promotion happened: stock is now reserved and the rep can
+    push the order into the fulfilment pipeline."""
+    rep_id = order.get("sales_rep_id")
+    if not rep_id:
+        return
+    NotificationRepository.create(
+        user_id=rep_id,
+        type=NotificationType.ORDER_READY_TO_SUBMIT,
+        title=f"Order {order.get('code') or ''} is ready to submit",
+        body=(
+            "Stock is now available. Open the order and tap 'Submit' to "
+            "push it into the fulfilment queue."
+        ),
+        meta=_order_meta(order),
+        link=f"/orders/{order['_id']}",
+    )
+
+
 def notify_order_placed(*, order):
     """Rep placed an order → office/admin gets a heads-up so someone
     can accept it. If the order landed in pending_admin_approval

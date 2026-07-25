@@ -29,7 +29,7 @@ from schemas.product import (
     VariantCreate,
     VariantUpdate,
 )
-from services import notification_service
+from services import notification_service, waiting_orders_service
 from services.audit_service import record
 from services.product_service import expand_option_sets, import_products
 from utils import r2_storage
@@ -531,6 +531,11 @@ async def adjust_variant_stock(
         variant_id=variant_id,
         product_id=product_id,
     )
+    # Positive stock arrivals may free up waiting orders. Scan + promote.
+    if payload.delta > 0:
+        waiting_orders_service.promote_waiting_orders(
+            trigger_variant_id=variant_id,
+        )
     return _with_inventory(ProductRepository.by_id(product_id))
 
 

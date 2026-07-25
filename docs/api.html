@@ -202,6 +202,7 @@
     <li><code>Variant</code> keeps a <code>price_history[]</code>. PATCH pushes the previous <code>(price, discount_price)</code> when either changes, with the optional <code>reason</code>.</li>
     <li><code>OrderLine.placed_qty</code> → <code>qty_ordered</code>. <code>accepted_qty</code> → <code>qty_accepted</code>. Line also stores <code>discount_price</code> so historical pricing survives future variant changes.</li>
     <li>New order statuses: <code>pending_admin_approval</code> and <code>delayed</code>. Over-credit orders no longer reject — they land in <code>pending_admin_approval</code> with inventory reserved but credit NOT held. Admin approves or rejects.</li>
+    <li><strong>Backorder / split-on-stock.</strong> Rep can now place orders that include out-of-stock items. If the request is mixed, the server splits into two orders: an in-stock <code>primary_order</code> (which enters the normal fulfilment pipeline) and an out-of-stock <code>waiting_order</code> (status <code>waiting_for_stock</code>, no inventory reservation, no credit hold). They cross-link via <code>sibling_order_id</code>. When stock arrives — via <code>POST /products/.../adjust-stock</code> or <code>POST /inventory/{id}/adjust</code> with a positive delta — the server scans waiting orders FIFO and promotes any that can now be fully reserved to status <code>ready_to_submit</code>, notifying the rep. The rep then hits <code>POST /orders/{id}/submit</code> to push it into the pipeline (credit check happens then, may still route to <code>pending_admin_approval</code>). <code>POST /orders</code> now returns a <code>PlaceOrderResponse</code> wrapper (<code>primary_order</code>, <code>waiting_order</code>, <code>split</code>).</li>
     <li><strong>Over-credit approval is an override, not a re-check.</strong> When admin approves a <code>pending_admin_approval</code> order that still doesn't fit within the store's credit line, the approval goes through anyway — that's the workflow's whole point. The order is flagged with <code>over_credit_approved</code>, <code>over_credit_amount</code>, <code>over_credit_approved_at</code>, <code>over_credit_approved_by_id</code>, <code>over_credit_approved_by_name</code>. The store's <code>credit_used</code> is bumped normally, so <code>available_credit</code> may go negative — surfaced as <code>is_over_credit_limit=true</code> on the store response. Filter exposure with <code>GET /api/orders?over_credit_approved=true</code>.</li>
     <li>Order snapshots at placement: <code>store_district</code>, <code>delivery_address_snapshot</code>, credit terms (<code>credit_period_days</code>), cancellation policy (<code>is_free_cancellation</code>, <code>cancellation_charges</code>), <code>return_window_days</code>. Historical orders survive future store edits.</li>
     <li>Store credit-limit changes now require admin approval: propose via <code>PATCH .../credit-limit</code>, admin approves or rejects.</li>
@@ -983,7 +984,14 @@ file=@variant-10kg.jpg</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/orders <span class="role">sales_rep</span></h4>
-  <p>Place an order. Server reserves inventory on every line first, then (if credit fits) holds the credit and persists the order as <code>placed</code>. If the total exceeds available credit, the order is <strong>still created</strong> as <code>pending_admin_approval</code> — inventory is reserved but credit is NOT held. Admin approves or rejects it.</p>
+  <p>Place an order. Response is a <code>PlaceOrderResponse</code> wrapper (<code>primary_order</code>, <code>waiting_order</code>, <code>split</code>) — not a single Order — so a mixed in-stock/out-of-stock request can return both halves in one call.</p>
+  <ul>
+    <li><strong>All lines in stock</strong> → primary follows the normal flow (<code>placed</code> or <code>pending_admin_approval</code> if over-credit); <code>waiting_order</code> is null; <code>split=false</code>.</li>
+    <li><strong>Mixed</strong> → in-stock lines go to <code>primary_order</code> (normal flow, credit checked); out-of-stock lines go to <code>waiting_order</code> with status <code>waiting_for_stock</code>. Both carry <code>sibling_order_id</code> pointing at each other. <code>split=true</code>.</li>
+    <li><strong>All lines out of stock</strong> → single <code>primary_order</code> with status <code>waiting_for_stock</code>; <code>waiting_order</code> is null; <code>split=false</code>.</li>
+  </ul>
+  <p>Waiting orders skip inventory reservation and credit hold — the stock isn't there yet. When stock arrives (positive delta on any adjust-stock endpoint), the server auto-scans waiting orders FIFO and promotes any that can be fully reserved to status <code>ready_to_submit</code>, notifying the rep. Rep confirms via <code>POST /orders/{id}/submit</code>.</p>
+  <p>Per-line split is all-or-nothing: a line whose full qty is available goes to primary, else the whole line goes to waiting. No partial fulfilment of a single line.</p>
   <p>At creation, the order snapshots the store's <code>district</code>, delivery address (contact + geo + gst), and commercial terms (<code>credit_period_days</code>, cancellation policy, return window). Future store edits don't rewrite existing orders.</p>
   <p class="label">Body</p>
   <pre><code>{
@@ -995,42 +1003,49 @@ file=@variant-10kg.jpg</code></pre>
     { "product_id": "{whiskas_id}",  "variant_id": "{wsk_1200_id}", "qty": 8 }
   ]
 }</code></pre>
-  <p class="label">Response 201 (excerpt) — order line uses <code>qty_ordered</code>/<code>qty_accepted</code>/<code>discount_price</code></p>
+  <p class="label">Response 201 (excerpt) — split example</p>
   <pre><code>{
-  "_id": "6a12…",
-  "code": "ORD-0042",
-  "status": "placed",
-  "store_id": "…", "store_code": "STR-0007", "store_district": "Bengaluru South",
-  "sales_rep_id": "…", "sales_rep_name": "Arjun",
-  "delivery_address_snapshot": {
-    "name": "Happy Pets Corner",
-    "location": "MG Road, Bengaluru",
-    "district": "Bengaluru South",
-    "geo_lat": 12.9716, "geo_lng": 77.5946,
-    "contact_name": "Rohit", "contact_phone": "+91-99450-33333"
+  "primary_order": { "_id": "6a12…", "code": "ORD-0042", "status": "placed", &hellip;, "sibling_order_id": "6a13…" },
+  "waiting_order": { "_id": "6a13…", "code": "ORD-0043", "status": "waiting_for_stock", &hellip;, "sibling_order_id": "6a12…" },
+  "split": true
+}</code></pre>
+  <p class="label">Response 201 (excerpt) — inside <code>primary_order</code> when all in stock</p>
+  <pre><code>{
+  "primary_order": {
+    "_id": "6a12…",
+    "code": "ORD-0042",
+    "status": "placed",
+    "store_id": "…", "store_code": "STR-0007", "store_district": "Bengaluru South",
+    "sales_rep_id": "…", "sales_rep_name": "Arjun",
+    "delivery_address_snapshot": { &hellip; },
+    "lines": [
+      { "product_id": "…", "product_code": "PRD-0001", "product_name": "Pedigree…",
+        "variant_id": "…", "variant_code": "PRD-0001-V02", "variant_label": "3kg",
+        "qty_ordered": 5, "qty_accepted": null,
+        "unit_price": 1000, "discount_price": 950, "line_total": 4750 }
+    ],
+    "total": 4750.00,
+    "history": [ { "status": "placed", "at": "…", "by_user_name": "Arjun" } ],
+    "credit_period_days": 30, "payment_due_date": null,
+    "sibling_order_id": null,
+    "ready_to_submit_at": null,
+    &hellip;
   },
-  "lines": [
-    { "product_id": "…", "product_code": "PRD-0001", "product_name": "Pedigree…",
-      "variant_id": "…", "variant_code": "PRD-0001-V02", "variant_label": "3kg",
-      "qty_ordered": 5, "qty_accepted": null,
-      "unit_price": 1000, "discount_price": 950, "line_total": 4750 }
-  ],
-  "total": 4750.00,
-  "history": [ { "status": "placed", "at": "…", "by_user_name": "Arjun" } ],
-  "expected_delivery_date": "2026-07-25T00:00:00Z",
-  "delivered_at": null,
-  "credit_period_days": 30, "payment_due_date": null,
-  "is_free_cancellation": true, "cancellation_charges": 0, "return_window_days": 7,
-  "last_status_updated_at": "…",
-  "accepted_by_id": null, "accepted_by_name": null
+  "waiting_order": null,
+  "split": false
 }</code></pre>
   <p class="label">Errors</p>
   <ul>
     <li><code>404</code> — store not assigned to caller</li>
-    <li><code>400</code> — store not approved / variant not found / inactive product or variant / insufficient stock</li>
-    <li><code>409</code> — inventory changed during reservation (retry)</li>
+    <li><code>400</code> — store not approved / variant not found / inactive product or variant / no inventory row for that variant</li>
+    <li><code>409</code> — inventory changed during reservation on the in-stock portion (retry)</li>
   </ul>
-  <p class="muted"><strong>Note:</strong> credit exceeded no longer returns 400 — instead the order lands in <code>pending_admin_approval</code>.</p>
+  <p class="muted"><strong>Notes:</strong> credit exceeded no longer returns 400 — instead the order lands in <code>pending_admin_approval</code>. Insufficient stock no longer returns 400 either — instead the line goes onto a <code>waiting_for_stock</code> sibling.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/orders/{order_id}/submit <span class="role">sales_rep (owner)</span></h4>
+  <p>Push a <code>ready_to_submit</code> order into the fulfilment pipeline. Inventory is already reserved (auto-promotion did that when stock arrived), so this only runs the credit check and transitions to <code>placed</code> — or <code>pending_admin_approval</code> if the store's credit line is now tight. Refuses any status other than <code>ready_to_submit</code>. Sales rep can only submit their own orders.</p>
 </div>
 
 <div class="endpoint">
@@ -1648,10 +1663,12 @@ page, page_size (page_size ≤ 200)</code></pre>
   <div>
     <h3>OrderStatus</h3>
     <ul>
+      <li><code>waiting_for_stock</code> — placed with out-of-stock items; no reservation, no credit hold</li>
+      <li><code>ready_to_submit</code> — auto-promoted after stock arrived; rep needs to submit</li>
       <li><code>pending_admin_approval</code> — over-credit; awaits admin</li>
       <li><code>placed</code> → <code>accepted</code> → <code>packing</code> → <code>out_for_delivery</code> → <code>delivered</code></li>
       <li><code>delayed</code> — reachable from any active state; resumes to next state</li>
-      <li><code>cancelled</code> — from <code>placed</code> (sales rep or office) or from <code>pending_admin_approval</code> (admin reject)</li>
+      <li><code>cancelled</code> — from <code>placed</code> (sales rep or office), <code>pending_admin_approval</code> (admin reject), or <code>waiting_for_stock</code>/<code>ready_to_submit</code> (rep abandons)</li>
     </ul>
   </div>
   <div>

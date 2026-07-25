@@ -11,11 +11,16 @@ def _effective_qty(line):
 
 
 def price_order_lines(line_payloads):
-    """Look up each (product, variant) and price the line for placement.
-    Rejects inactive product / variant and checks available stock covers
-    the requested qty. Emits lines shaped for storage on the order.
+    """Look up each (product, variant) and price the line. Emits lines
+    shaped for storage on the order. Out-of-stock lines are NOT rejected
+    — instead the caller (route layer) inspects each line's available
+    stock and decides whether the line belongs on the in-stock order or
+    the waiting order.
 
-    Returns (lines, total, error). On error, `lines` is empty.
+    Returns (lines, total, error). On error, `lines` is empty. Errors
+    are only raised for hard failures: unknown product/variant, inactive
+    catalogue entry, or a missing inventory record (office hasn't seeded
+    that variant's stock row).
     """
     lines = []
     total = 0.0
@@ -39,15 +44,8 @@ def price_order_lines(line_payloads):
                 f"Line {i}: no inventory record for "
                 f"'{info['product_name']}'. Ask office to seed stock first."
             )
-        if inv["available"] < lp.qty:
-            return [], 0.0, (
-                f"Line {i}: only {inv['available']} available for "
-                f"'{info['product_name']}' ({info.get('variant_label') or 'default'}), "
-                f"requested {lp.qty}."
-            )
         list_price = float(info["price"])
         discount_price = info.get("discount_price")
-        # Effective per-unit price is the discount if set, otherwise list.
         effective_unit = float(discount_price) if discount_price is not None else list_price
         line_total = round(effective_unit * lp.qty, 2)
         total += line_total
@@ -68,9 +66,36 @@ def price_order_lines(line_payloads):
                 "unit_price": list_price,
                 "discount_price": float(discount_price) if discount_price is not None else None,
                 "line_total": line_total,
+                # Attached for the route layer's split logic; stripped
+                # before storage — inventory state changes over time and
+                # we don't want a stale copy sitting on the order doc.
+                "_available_at_placement": int(inv.get("available") or 0),
             }
         )
     return lines, round(total, 2), None
+
+
+def split_lines_by_stock(priced_lines):
+    """All-or-nothing per-line split. A line whose requested qty exceeds
+    available stock goes entirely to the backorder bucket; a line whose
+    qty is covered goes entirely to the in-stock bucket. Partial line
+    fills are not supported yet — keep the mental model simple.
+
+    Returns (in_stock, out_of_stock) as two lists of line dicts. The
+    `_available_at_placement` marker is stripped before either list is
+    returned so the caller can pass them straight to storage."""
+    in_stock, out_of_stock = [], []
+    for line in priced_lines:
+        avail = line.pop("_available_at_placement", 0)
+        if avail >= int(line["qty_ordered"]):
+            in_stock.append(line)
+        else:
+            out_of_stock.append(line)
+    return in_stock, out_of_stock
+
+
+def _totals_for(lines):
+    return round(sum(float(l.get("line_total") or 0) for l in lines), 2)
 
 
 def reserve_inventory_for(lines):

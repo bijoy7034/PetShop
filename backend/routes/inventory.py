@@ -9,7 +9,7 @@ from schemas.inventory import (
     InventoryUpdate,
     StockAdjust,
 )
-from services import notification_service
+from services import notification_service, waiting_orders_service
 from services.audit_service import record
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -108,4 +108,8 @@ async def adjust_inventory(
         variant_id=after["variant_id"],
         product_id=after.get("product_id"),
     )
+    if payload.delta > 0:
+        waiting_orders_service.promote_waiting_orders(
+            trigger_variant_id=after["variant_id"],
+        )
     return after

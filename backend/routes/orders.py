@@ -21,16 +21,19 @@ from schemas.order import (
     OrderListResponse,
     OrderReject,
     PaymentCreate,
+    PlaceOrderResponse,
 )
-from services import notification_service
+from services import notification_service, waiting_orders_service
 from services.audit_service import record
 from services.order_service import (
+    _totals_for,
     apply_accept_adjustments,
     commit_inventory_for,
     price_order_lines,
     release_inventory_for,
     release_surplus_reservations,
     reserve_inventory_for,
+    split_lines_by_stock,
 )
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -83,12 +86,104 @@ async def get_order(order_id: str, current=Depends(require_any_user)):
     return order
 
 
-@router.post("", response_model=Order, status_code=status.HTTP_201_CREATED)
+def _place_in_stock_order(*, store, user, lines, total, notes,
+                          expected_delivery_date, sibling_id, request):
+    """Extracted from the old single-order path so the split flow can
+    call it after peeling off the backordered lines. Handles credit
+    check, inventory reservation, DB insert, audit, notification."""
+    available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
+    over_credit = total > available
+    initial_status = (
+        OrderStatus.PENDING_ADMIN_APPROVAL.value if over_credit
+        else OrderStatus.PLACED.value
+    )
+    reserve_err = reserve_inventory_for(lines)
+    if reserve_err:
+        raise HTTPException(status.HTTP_409_CONFLICT, reserve_err)
+    if not over_credit:
+        hold = StoreRepository.adjust_credit_used(store["_id"], total)
+        if hold is None:
+            release_inventory_for(lines)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Credit hold failed (concurrent order). Please retry.",
+            )
+    try:
+        order = OrderRepository.insert(
+            store=store, sales_rep=user, lines=lines, total=total,
+            notes=notes, status=initial_status,
+            expected_delivery_date=expected_delivery_date,
+            sibling_order_id=sibling_id,
+        )
+    except Exception:
+        if not over_credit:
+            StoreRepository.adjust_credit_used(store["_id"], -total)
+        release_inventory_for(lines)
+        raise
+
+    record(
+        AuditAction.ORDER_PENDING_APPROVAL if over_credit else AuditAction.ORDER_PLACE,
+        ResourceType.ORDER,
+        resource_id=order["_id"],
+        actor=user,
+        after={
+            "store_id": store["_id"],
+            "total": total,
+            "lines": len(lines),
+            "status": initial_status,
+            "over_credit": over_credit,
+            "available_at_placement": available,
+            "sibling_order_id": sibling_id,
+        },
+        request=request,
+    )
+    notification_service.notify_order_placed(order=order)
+    return order
+
+
+def _place_waiting_order(*, store, user, lines, total, notes,
+                        expected_delivery_date, sibling_id, request):
+    """Waiting orders skip inventory reservation and credit hold — the
+    stock isn't there yet, and credit will be checked when the order is
+    submitted after auto-promotion."""
+    order = OrderRepository.insert(
+        store=store, sales_rep=user, lines=lines, total=total,
+        notes=notes, status=OrderStatus.WAITING_FOR_STOCK.value,
+        expected_delivery_date=expected_delivery_date,
+        sibling_order_id=sibling_id,
+    )
+    record(
+        AuditAction.ORDER_WAITING_FOR_STOCK,
+        ResourceType.ORDER,
+        resource_id=order["_id"],
+        actor=user,
+        after={
+            "store_id": store["_id"],
+            "total": total,
+            "lines": len(lines),
+            "sibling_order_id": sibling_id,
+        },
+        request=request,
+    )
+    notification_service.notify_order_waiting_for_stock(order=order)
+    return order
+
+
+@router.post("", response_model=PlaceOrderResponse, status_code=status.HTTP_201_CREATED)
 async def place_order(
     payload: OrderCreate,
     request: Request,
     current=Depends(require_sales_rep),
 ):
+    """Place an order. Out-of-stock lines are accepted and split off
+    into a companion `waiting_for_stock` order — auto-promoted to
+    `ready_to_submit` when stock arrives.
+
+    Response shape:
+      - all lines in stock → { primary_order, waiting_order: null, split: false }
+      - all lines out of stock → { primary_order: <the waiting order>, waiting_order: null, split: false }
+      - mixed → { primary_order, waiting_order, split: true }
+    """
     user = current["user"]
     store = StoreRepository.by_id(payload.store_id)
     if not store or store.get("sales_rep_id") != user["_id"]:
@@ -102,70 +197,63 @@ async def place_order(
             "Store is not approved — cannot place orders yet.",
         )
 
-    lines, order_total, err = price_order_lines(payload.lines)
+    lines, _order_total, err = price_order_lines(payload.lines)
     if err:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
 
-    # Credit check — over-limit orders no longer reject; they go into
-    # pending_admin_approval and don't consume credit until an admin
-    # approves them.
-    available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
-    over_credit = order_total > available
-    initial_status = (
-        OrderStatus.PENDING_ADMIN_APPROVAL.value if over_credit
-        else OrderStatus.PLACED.value
-    )
+    in_stock, out_of_stock = split_lines_by_stock(lines)
+    in_stock_total = _totals_for(in_stock)
+    out_of_stock_total = _totals_for(out_of_stock)
 
-    # Reserve inventory regardless — the sales rep's intent should hold
-    # the units even while admin decides. Rejection releases them.
-    reserve_err = reserve_inventory_for(lines)
-    if reserve_err:
-        raise HTTPException(status.HTTP_409_CONFLICT, reserve_err)
-
-    # Only bump credit_used when the order is going straight to 'placed'.
-    # Pending orders don't count against the credit line yet.
-    if not over_credit:
-        hold = StoreRepository.adjust_credit_used(store["_id"], order_total)
-        if hold is None:
-            release_inventory_for(lines)
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Credit hold failed (concurrent order). Please retry.",
-            )
-
-    try:
-        order = OrderRepository.insert(
-            store=store,
-            sales_rep=user,
-            lines=lines,
-            total=order_total,
+    # --- Case 1: everything in stock (existing behaviour) ---
+    if not out_of_stock:
+        order = _place_in_stock_order(
+            store=store, user=user, lines=in_stock, total=in_stock_total,
             notes=payload.notes,
-            status=initial_status,
             expected_delivery_date=payload.expected_delivery_date,
+            sibling_id=None, request=request,
         )
-    except Exception:
-        if not over_credit:
-            StoreRepository.adjust_credit_used(store["_id"], -order_total)
-        release_inventory_for(lines)
-        raise
+        return PlaceOrderResponse(primary_order=order, waiting_order=None, split=False)
 
+    # --- Case 2: everything out of stock ---
+    if not in_stock:
+        order = _place_waiting_order(
+            store=store, user=user, lines=out_of_stock, total=out_of_stock_total,
+            notes=payload.notes,
+            expected_delivery_date=payload.expected_delivery_date,
+            sibling_id=None, request=request,
+        )
+        return PlaceOrderResponse(primary_order=order, waiting_order=None, split=False)
+
+    # --- Case 3: mixed → split ---
+    primary = _place_in_stock_order(
+        store=store, user=user, lines=in_stock, total=in_stock_total,
+        notes=payload.notes,
+        expected_delivery_date=payload.expected_delivery_date,
+        sibling_id=None, request=request,
+    )
+    waiting = _place_waiting_order(
+        store=store, user=user, lines=out_of_stock, total=out_of_stock_total,
+        notes=payload.notes,
+        expected_delivery_date=payload.expected_delivery_date,
+        sibling_id=primary["_id"], request=request,
+    )
+    # Cross-link the primary now that we have the waiting id.
+    primary = OrderRepository.set_sibling(primary["_id"], waiting["_id"])
     record(
-        AuditAction.ORDER_PENDING_APPROVAL if over_credit else AuditAction.ORDER_PLACE,
+        AuditAction.ORDER_SPLIT_ON_STOCK,
         ResourceType.ORDER,
-        resource_id=order["_id"],
+        resource_id=primary["_id"],
         actor=user,
         after={
-            "store_id": store["_id"],
-            "total": order_total,
-            "lines": len(lines),
-            "status": initial_status,
-            "over_credit": over_credit,
-            "available_at_placement": available,
+            "primary_order_id": primary["_id"],
+            "waiting_order_id": waiting["_id"],
+            "in_stock_lines": len(in_stock),
+            "out_of_stock_lines": len(out_of_stock),
         },
         request=request,
     )
-    notification_service.notify_order_placed(order=order)
-    return order
+    return PlaceOrderResponse(primary_order=primary, waiting_order=waiting, split=True)
 
 
 @router.post("/{order_id}/admin-approve", response_model=Order)
@@ -607,3 +695,64 @@ router.post("/{order_id}/pack", response_model=Order)(
 router.post("/{order_id}/dispatch", response_model=Order)(
     _transition_route(OrderStatus.OUT_FOR_DELIVERY.value, AuditAction.ORDER_DISPATCH)
 )
+
+
+@router.post("/{order_id}/submit", response_model=Order)
+async def submit_ready_order(
+    order_id: str,
+    request: Request,
+    current=Depends(require_sales_rep),
+):
+    """Rep confirms a ready_to_submit order, pushing it into the
+    fulfilment pipeline. Inventory is ALREADY reserved (promotion
+    happened when stock arrived), so this endpoint just runs the credit
+    check and transitions to placed (or pending_admin_approval if
+    over-credit)."""
+    order = OrderRepository.by_id(order_id)
+    if not order:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order.get("sales_rep_id") != current["user"]["_id"]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    if order["status"] != OrderStatus.READY_TO_SUBMIT.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Only ready_to_submit orders can be submitted. Current: '{order['status']}'.",
+        )
+
+    store = StoreRepository.by_id(order["store_id"])
+    if not store:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store no longer exists")
+    order_total = float(order.get("total") or 0)
+    available = float(store.get("credit_limit", 0)) - float(store.get("credit_used", 0))
+    over_credit = order_total > available
+    target_status = (
+        OrderStatus.PENDING_ADMIN_APPROVAL.value if over_credit
+        else OrderStatus.PLACED.value
+    )
+    if not over_credit:
+        hold = StoreRepository.adjust_credit_used(store["_id"], order_total)
+        if hold is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Credit hold failed (concurrent order). Please retry.",
+            )
+
+    after = OrderRepository.set_status(
+        order_id, target_status, current["user"],
+        note="Submitted by rep after stock became available.",
+    )
+    record(
+        AuditAction.ORDER_SUBMIT_FROM_READY,
+        ResourceType.ORDER,
+        resource_id=order_id,
+        actor=current["user"],
+        before={"status": order["status"]},
+        after={"status": target_status, "over_credit": over_credit},
+        request=request,
+    )
+    if over_credit:
+        # Notify admin like a fresh over-credit order would.
+        notification_service.notify_order_placed(order=after)
+    else:
+        notification_service.notify_order_placed(order=after)
+    return after

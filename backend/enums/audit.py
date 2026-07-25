@@ -89,6 +89,10 @@ class AuditAction(StrEnum):
     ORDER_DISPATCH = "order.dispatch"
     ORDER_DELIVER = "order.deliver"
     ORDER_PAYMENT_RECORDED = "order.payment_recorded"
+    ORDER_SPLIT_ON_STOCK = "order.split_on_stock"
+    ORDER_WAITING_FOR_STOCK = "order.waiting_for_stock"
+    ORDER_READY_TO_SUBMIT = "order.ready_to_submit"
+    ORDER_SUBMIT_FROM_READY = "order.submit_from_ready"
 
     # sales-rep monthly targets
     REP_TARGET_CREATE = "rep_target.create"

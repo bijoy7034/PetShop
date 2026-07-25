@@ -50,6 +50,9 @@
     { "key": "inventory_id", "value": "", "type": "string" },
     { "key": "store_id", "value": "", "type": "string" },
     { "key": "order_id", "value": "", "type": "string" },
+    { "key": "waiting_order_id", "value": "", "type": "string" },
+    { "key": "out_of_stock_product_id", "value": "", "type": "string" },
+    { "key": "out_of_stock_variant_id", "value": "", "type": "string" },
     { "key": "rep_target_id", "value": "", "type": "string" },
     { "key": "achievement_id", "value": "", "type": "string" },
     { "key": "progress_id", "value": "", "type": "string" },
@@ -664,9 +667,11 @@
                 "exec": [
                   "pm.test('201 Created', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
-                  "pm.collectionVariables.set('order_id', j._id);",
-                  "pm.test('Status is placed', () => pm.expect(j.status).to.eql('placed'));",
-                  "pm.test('Total is 1750', () => pm.expect(j.total).to.eql(1750));"
+                  "const order = j.primary_order || j;",
+                  "pm.collectionVariables.set('order_id', order._id);",
+                  "if (j.waiting_order) pm.collectionVariables.set('waiting_order_id', j.waiting_order._id);",
+                  "pm.test('Status is placed', () => pm.expect(order.status).to.eql('placed'));",
+                  "pm.test('Total is 1750', () => pm.expect(order.total).to.eql(1750));"
                 ]
               }
             }
@@ -1875,6 +1880,68 @@
                   "raw": "{{base_url}}/api/orders/{{order_id}}/cancel",
                   "host": ["{{base_url}}"],
                   "path": ["api", "orders", "{{order_id}}", "cancel"]
+                }
+              }
+            },
+            {
+              "name": "Place mixed order (in-stock + out-of-stock → split)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "if (j && j.primary_order) pm.collectionVariables.set('order_id', j.primary_order._id);",
+                      "if (j && j.waiting_order) pm.collectionVariables.set('waiting_order_id', j.waiting_order._id);",
+                      "pm.test('split=true', () => pm.expect(j.split).to.eql(true));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"lines\": [\n    { \"product_id\": \"{{product_id}}\", \"variant_id\": \"{{variant_id}}\", \"qty\": 2 },\n    { \"product_id\": \"{{out_of_stock_product_id}}\", \"variant_id\": \"{{out_of_stock_variant_id}}\", \"qty\": 3 }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/orders",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders"]
+                }
+              }
+            },
+            {
+              "name": "Submit ready-to-submit order (rep confirms after stock arrival)",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/orders/{{waiting_order_id}}/submit",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "{{waiting_order_id}}", "submit"]
+                }
+              }
+            },
+            {
+              "name": "List waiting-for-stock orders",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders?status=waiting_for_stock&page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders"],
+                  "query": [
+                    { "key": "status", "value": "waiting_for_stock" },
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" }
+                  ]
                 }
               }
             },

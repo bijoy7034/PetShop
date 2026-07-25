@@ -143,6 +143,17 @@ class Order(BaseModel):
     over_credit_approved_by_id: str | None = None
     over_credit_approved_by_name: str | None = None
 
+    # --- Backorder split ---
+    # When a rep places an order with a mix of in-stock and out-of-stock
+    # lines the server splits into two orders and cross-links them via
+    # sibling_order_id. If the whole order is out-of-stock, one order is
+    # created (no sibling) with status=waiting_for_stock.
+    sibling_order_id: str | None = None
+    # Timestamp of the last successful auto-promotion from
+    # waiting_for_stock → ready_to_submit. Lets the UI show "ready since
+    # <date>".
+    ready_to_submit_at: datetime | None = None
+
     # --- Policy snapshots (from store at order create) ---
     is_free_cancellation: bool = True
     cancellation_charges: float = 0.0
@@ -185,3 +196,17 @@ class OrderListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class PlaceOrderResponse(BaseModel):
+    """Wrapper returned by POST /orders. When the request has a mix of
+    in-stock and out-of-stock lines the server splits it into two
+    orders: `primary_order` (in-stock, entering the fulfilment pipeline)
+    and `waiting_order` (out-of-stock, status=waiting_for_stock).
+
+    When every line is in-stock, `waiting_order` is None. When every
+    line is out-of-stock, `primary_order` is the waiting order and
+    `waiting_order` is None (there was nothing to split off)."""
+    primary_order: Order
+    waiting_order: Order | None = None
+    split: bool = False

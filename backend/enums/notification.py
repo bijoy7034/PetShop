@@ -15,6 +15,8 @@ class NotificationType(StrEnum):
     ORDER_PACKED = "order.packed"                      # office marked packing → rep
     ORDER_DISPATCHED = "order.dispatched"              # out for delivery → rep
     ORDER_DELIVERED = "order.delivered"                # delivered → rep + admin
+    ORDER_WAITING_FOR_STOCK = "order.waiting_for_stock"  # order held pending stock arrival
+    ORDER_READY_TO_SUBMIT = "order.ready_to_submit"    # stock arrived; rep needs to confirm
 
     # Credit / payments
     PAYMENT_COLLECTED = "credit.payment_collected"     # payment recorded → rep + office
