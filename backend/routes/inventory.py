@@ -9,6 +9,7 @@ from schemas.inventory import (
     InventoryUpdate,
     StockAdjust,
 )
+from services import notification_service
 from services.audit_service import record
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -99,5 +100,12 @@ async def adjust_inventory(
             "reason": payload.reason,
         },
         request=request,
+    )
+    notification_service.check_stock_after_adjust(
+        updated=after,
+        product_name=after.get("product_name") or "",
+        variant_label=after.get("variant_label"),
+        variant_id=after["variant_id"],
+        product_id=after.get("product_id"),
     )
     return after

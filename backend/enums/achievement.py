@@ -17,4 +17,5 @@ class AchievementMetric(StrEnum):
 class AchievementProgressStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-    CLAIMED = "claimed"
+    CLAIMED = "claimed"       # Rep clicked claim, awaiting reward hand-out.
+    REDEEMED = "redeemed"     # Admin/office confirmed the reward was given.

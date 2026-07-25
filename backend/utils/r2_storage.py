@@ -106,6 +106,61 @@ def delete_image(key):
     client.delete_object(Bucket=settings.R2_BUCKET, Key=key)
 
 
+def upload_bytes(*, key, data, content_type="application/octet-stream",
+                 cache_control=None):
+    """Put raw bytes at an exact key (no UUID mangling). Used for DB
+    archives, backups, generated reports — anything where the caller
+    controls the storage path. Returns {key, url} where url is the
+    public URL (may not be reachable if the bucket / prefix is private)."""
+    client = _get_client()
+    put_kwargs = {
+        "Bucket": settings.R2_BUCKET,
+        "Key": key,
+        "Body": data,
+        "ContentType": content_type,
+    }
+    if cache_control:
+        put_kwargs["CacheControl"] = cache_control
+    client.put_object(**put_kwargs)
+    return {
+        "key": key,
+        "url": f"{settings.R2_PUBLIC_BASE_URL.rstrip('/')}/{key}"
+                if settings.R2_PUBLIC_BASE_URL else None,
+    }
+
+
+def get_signed_download_url(key, *, ttl_seconds=3600):
+    """Time-limited presigned GET URL. Use for private objects (DB
+    archives, sensitive reports) that shouldn't sit behind the public
+    r2.dev URL. Works against R2's S3-compatible API."""
+    client = _get_client()
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.R2_BUCKET, "Key": key},
+        ExpiresIn=int(ttl_seconds),
+    )
+
+
+def list_objects(prefix, *, limit=1000):
+    """List keys under a prefix, ordered by last-modified descending —
+    used by the admin dump listing so a user can see the archive
+    history without leaving the app."""
+    client = _get_client()
+    resp = client.list_objects_v2(
+        Bucket=settings.R2_BUCKET, Prefix=prefix, MaxKeys=limit,
+    )
+    contents = resp.get("Contents", []) or []
+    contents.sort(key=lambda o: o.get("LastModified"), reverse=True)
+    return [
+        {
+            "key": o["Key"],
+            "size_bytes": int(o.get("Size") or 0),
+            "last_modified": o.get("LastModified"),
+        }
+        for o in contents
+    ]
+
+
 def key_from_url(url):
     """Reverse the public URL back to an object key so DELETE can act on
     the stored URL directly. Returns None if the URL doesn't belong to

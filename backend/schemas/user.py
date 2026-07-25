@@ -50,3 +50,11 @@ class UserListResponse(BaseModel):
 class UserCreateResponse(BaseModel):
     user: User
     temporary_password: str | None = None
+
+
+class PasswordResetResponse(BaseModel):
+    """Admin-initiated password reset. `temporary_password` is shown ONCE
+    — the frontend must display it to the admin and never store it. The
+    target user is forced to change it on next login."""
+    user: User
+    temporary_password: str

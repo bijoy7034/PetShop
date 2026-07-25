@@ -13,13 +13,16 @@ from repository.sales_achievement_progress_repo import (
 from repository.sales_achievement_repo import SalesAchievementRepository
 from repository.user_repo import UserRepository
 from schemas.sales_achievement import (
+    AchievementProgressListResponse,
+    AchievementRedeem,
     MyAchievementsResponse,
     SalesAchievement,
     SalesAchievementCreate,
     SalesAchievementListResponse,
+    SalesAchievementProgress,
     SalesAchievementUpdate,
 )
-from services import rep_analytics_service as analytics
+from services import notification_service, rep_analytics_service as analytics
 from services.audit_service import record
 
 router = APIRouter(prefix="/achievements", tags=["achievements"])
@@ -46,9 +49,16 @@ def _current_value(rep_id, metric, start, end):
     return 0.0
 
 
+_TERMINAL_STATUSES = {
+    AchievementProgressStatus.CLAIMED.value,
+    AchievementProgressStatus.REDEEMED.value,
+}
+
+
 def _hydrate_progress(progress, achievement):
     """Recompute current_value from underlying data and flag completed
-    status so the response is always fresh."""
+    status so the response is always fresh. Fires a one-shot notification
+    the first time a row crosses its target (marker: no completed_at yet)."""
     metric = (achievement.get("target") or {}).get("metric")
     target_value = float((achievement.get("target") or {}).get("value") or 0)
     current = _current_value(
@@ -57,12 +67,28 @@ def _hydrate_progress(progress, achievement):
     )
     progress["current_value"] = round(current, 2)
     progress["target_value"] = target_value
-    # Don't downgrade an already-claimed row.
-    if progress.get("status") != AchievementProgressStatus.CLAIMED.value:
+    # Don't downgrade a claimed/redeemed row.
+    if progress.get("status") not in _TERMINAL_STATUSES:
         if current >= target_value:
             progress["status"] = AchievementProgressStatus.COMPLETED.value
-            if not progress.get("completed_at"):
+            first_crossing = not progress.get("completed_at")
+            if first_crossing:
                 progress["completed_at"] = now_utc()
+                # Persist the crossing so we don't fire the notification twice.
+                SalesAchievementProgressRepository.set_value(
+                    progress["_id"],
+                    current_value=progress["current_value"],
+                    status=progress["status"],
+                    completed_at=progress["completed_at"],
+                )
+                notification_service.notify_achievement_completed(
+                    sales_rep={
+                        "_id": progress["sales_rep_id"],
+                        "name": progress.get("sales_rep_name"),
+                    },
+                    achievement=achievement,
+                    progress_id=progress["_id"],
+                )
         else:
             progress["status"] = AchievementProgressStatus.IN_PROGRESS.value
     return progress
@@ -234,9 +260,13 @@ async def claim_achievement(
         achievement=a, sales_rep=user
     )
     hydrated = _hydrate_progress(progress, a)
-    if hydrated["status"] == AchievementProgressStatus.CLAIMED.value:
+    if hydrated["status"] in (
+        AchievementProgressStatus.CLAIMED.value,
+        AchievementProgressStatus.REDEEMED.value,
+    ):
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Already claimed."
+            status.HTTP_400_BAD_REQUEST,
+            f"Already {hydrated['status']}.",
         )
     if hydrated["status"] != AchievementProgressStatus.COMPLETED.value:
         raise HTTPException(
@@ -254,4 +284,93 @@ async def claim_achievement(
         after={"current_value": hydrated["current_value"], "target_value": hydrated["target_value"]},
         request=request,
     )
+    notification_service.notify_achievement_claimed(
+        sales_rep=user, achievement=a, progress_id=progress["_id"],
+    )
     return a
+
+
+@router.get(
+    "/{achievement_id}/progress",
+    response_model=AchievementProgressListResponse,
+)
+async def list_achievement_progress(
+    achievement_id: str,
+    status_filter: str | None = Query(
+        None, alias="status",
+        description="in_progress | completed | claimed | redeemed",
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _=Depends(require_office),
+):
+    """Office/admin view of every rep's progress on one achievement.
+    Filter by `status=claimed` to see the queue waiting to be redeemed.
+    Progress rows are returned as-persisted (no live re-hydration) so
+    admin decisions match what the rep saw when they claimed."""
+    a = SalesAchievementRepository.by_id(achievement_id)
+    if not a:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Achievement not found")
+    items, total = SalesAchievementProgressRepository.list_by_achievement(
+        achievement_id,
+        status=status_filter,
+        skip=(page - 1) * page_size,
+        limit=page_size,
+    )
+    return AchievementProgressListResponse(
+        items=items, total=total, page=page, page_size=page_size,
+    )
+
+
+@router.post(
+    "/progress/{progress_id}/redeem",
+    response_model=SalesAchievementProgress,
+)
+async def redeem_achievement(
+    progress_id: str,
+    payload: AchievementRedeem,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Admin/office marks a claimed reward as physically delivered. Only
+    a `claimed` row can be redeemed; `in_progress`, `completed`, and
+    already-`redeemed` rows are 400. Emits a notification back to the
+    rep so their app updates in the next poll."""
+    progress = SalesAchievementProgressRepository.by_id(progress_id)
+    if not progress:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Progress row not found")
+    if progress["status"] != AchievementProgressStatus.CLAIMED.value:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Only claimed rewards can be redeemed. This row is "
+            f"'{progress['status']}'.",
+        )
+    achievement = SalesAchievementRepository.by_id(progress["achievement_id"])
+    if not achievement:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Achievement no longer exists — cannot redeem.",
+        )
+
+    updated = SalesAchievementProgressRepository.mark_redeemed(
+        progress_id, actor=current["user"], notes=payload.notes,
+    )
+    record(
+        AuditAction.ACHIEVEMENT_REDEEM,
+        ResourceType.ACHIEVEMENT,
+        resource_id=progress["achievement_id"],
+        actor=current["user"],
+        before={"progress_id": progress_id, "sales_rep_id": progress["sales_rep_id"]},
+        after={"notes": payload.notes},
+        request=request,
+    )
+    notification_service.notify_achievement_redeemed(
+        sales_rep={
+            "_id": progress["sales_rep_id"],
+            "name": progress.get("sales_rep_name"),
+        },
+        achievement=achievement,
+        progress_id=progress_id,
+        actor=current["user"],
+    )
+    return updated

@@ -52,6 +52,8 @@
     { "key": "order_id", "value": "", "type": "string" },
     { "key": "rep_target_id", "value": "", "type": "string" },
     { "key": "achievement_id", "value": "", "type": "string" },
+    { "key": "progress_id", "value": "", "type": "string" },
+    { "key": "notification_id", "value": "", "type": "string" },
     { "key": "store_lat", "value": "12.9716", "type": "string" },
     { "key": "store_lng", "value": "77.5946", "type": "string" }
   ],
@@ -1110,6 +1112,18 @@
                   "raw": "{{base_url}}/api/users/{{rep_user_id}}",
                   "host": ["{{base_url}}"],
                   "path": ["api", "users", "{{rep_user_id}}"]
+                }
+              }
+            },
+            {
+              "name": "Reset user password (admin) — returns one-time temp password",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{rep_user_id}}/reset-password",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "users", "{{rep_user_id}}", "reset-password"]
                 }
               }
             }
@@ -2409,6 +2423,56 @@
               }
             },
             {
+              "name": "List progress on an achievement (office/admin — filter status=claimed to see redemption queue)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "if (j && j.items && j.items.length) {",
+                      "  pm.collectionVariables.set('progress_id', j.items[0]._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/{{achievement_id}}/progress?status=claimed&page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "{{achievement_id}}", "progress"],
+                  "query": [
+                    { "key": "status", "value": "claimed" },
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Redeem a claimed reward (office/admin) — records notes + notifies rep",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"notes\": \"Handed over voucher V-2026-07-42 during the Monday standup\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/achievements/progress/{{progress_id}}/redeem",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "achievements", "progress", "{{progress_id}}", "redeem"]
+                }
+              }
+            },
+            {
               "name": "Delete achievement (removes per-rep progress rows too)",
               "request": {
                 "method": "DELETE",
@@ -2417,6 +2481,197 @@
                   "raw": "{{base_url}}/api/achievements/{{achievement_id}}",
                   "host": ["{{base_url}}"],
                   "path": ["api", "achievements", "{{achievement_id}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notifications",
+          "description": "Per-user in-app notifications. Frontend polls /notifications every 30-60 s, or the cheaper /unread-count endpoint just for the badge. Notifications currently fire on achievement completed / claimed / redeemed.",
+          "item": [
+            {
+              "name": "List my notifications (poll every ~30s)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "if (j && j.items && j.items.length) {",
+                      "  pm.collectionVariables.set('notification_id', j.items[0]._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/notifications?unread_only=false&page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "notifications"],
+                  "query": [
+                    { "key": "unread_only", "value": "false" },
+                    { "key": "since", "value": "2026-07-25T00:00:00Z", "disabled": true },
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Unread count (cheap badge poll)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/notifications/unread-count",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "notifications", "unread-count"]
+                }
+              }
+            },
+            {
+              "name": "Mark one notification as read",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/notifications/{{notification_id}}/read",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "notifications", "{{notification_id}}", "read"]
+                }
+              }
+            },
+            {
+              "name": "Mark all my notifications as read",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/notifications/read-all",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "notifications", "read-all"]
+                }
+              }
+            },
+            {
+              "name": "Broadcast announcement (admin) — role-scoped audience",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Warehouse closed on 4-Aug\",\n  \"body\": \"Deliveries resume 5-Aug. Please inform stores.\",\n  \"audience\": \"all\",\n  \"kind\": \"announcement\",\n  \"link\": null\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/notifications/announce",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "notifications", "announce"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin (system)",
+          "description": "Admin-only utilities: manual DB dump to Cloudflare R2 (also runs bi-weekly via scripts/scheduler.py), archive browsing with signed download URLs, and audit-log query with filter + sort.",
+          "item": [
+            {
+              "name": "DB dump — run now (returns key + signed URL, 1h TTL)",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/db-dump/run-now",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "db-dump", "run-now"]
+                }
+              }
+            },
+            {
+              "name": "DB dump — list archives",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/db-dump/archives?limit=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "db-dump", "archives"],
+                  "query": [{ "key": "limit", "value": "50" }]
+                }
+              }
+            },
+            {
+              "name": "DB dump — mint fresh presigned download URL for a key",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "X-CSRF-Token", "value": "{{csrf_token}}" }],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/db-dump/download-url?key=db-archives/2026/2026-07-25T00-00-00Z.tar.gz&ttl_seconds=3600",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "db-dump", "download-url"],
+                  "query": [
+                    { "key": "key", "value": "db-archives/2026/2026-07-25T00-00-00Z.tar.gz" },
+                    { "key": "ttl_seconds", "value": "3600" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Audit logs — list with filter + sort",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/audit-logs?page=1&page_size=50&sort_by=at&sort_dir=desc",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "audit-logs"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "sort_by", "value": "at" },
+                    { "key": "sort_dir", "value": "desc" },
+                    { "key": "action", "value": "order.accept", "disabled": true },
+                    { "key": "resource_type", "value": "order", "disabled": true },
+                    { "key": "resource_id", "value": "{{order_id}}", "disabled": true },
+                    { "key": "actor_id", "value": "{{office_user_id}}", "disabled": true },
+                    { "key": "actor_email", "value": "priya@", "disabled": true },
+                    { "key": "ip", "value": "127.0.0.1", "disabled": true },
+                    { "key": "from", "value": "2026-07-01T00:00:00Z", "disabled": true },
+                    { "key": "to", "value": "2026-07-31T23:59:59Z", "disabled": true },
+                    { "key": "search", "value": "priya", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Audit logs — distinct action names (for filter dropdown)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/audit-logs/actions",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "audit-logs", "actions"]
+                }
+              }
+            },
+            {
+              "name": "Audit logs — distinct resource_type values",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/admin/audit-logs/resource-types",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "admin", "audit-logs", "resource-types"]
                 }
               }
             }

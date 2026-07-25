@@ -9,7 +9,7 @@ from config.logging.logger import logger
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @field_validator("CORS_ALLOW_ORIGINS", "DB_DUMP_EXCLUDE_COLLS", mode="before")
     @classmethod
     def _parse_origins(cls, v):
         if isinstance(v, str):
@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     REP_TARGETS_COLL: str = "rep_targets"
     SALES_ACHIEVEMENTS_COLL: str = "sales_achievements"
     SALES_ACHIEVEMENT_PROGRESS_COLL: str = "sales_achievement_progress"
+    NOTIFICATIONS_COLL: str = "notifications"
     COUNTERS_COLL: str = "_counters"
 
     # Attendance geo-fence radius in metres. Sales rep must be within this
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
     R2_ENDPOINT_URL: str = ""
     R2_PUBLIC_BASE_URL: str = ""
     R2_MAX_IMAGE_BYTES: int = 5 * 1024 * 1024
+
+    # DB archive scheduler. Uploads a tar.gz of every collection into
+    # R2_BUCKET/{R2_ARCHIVE_PREFIX}/... every DB_DUMP_INTERVAL_DAYS days
+    # (14 = bi-weekly). Collections in DB_DUMP_EXCLUDE_COLLS are skipped.
+    R2_ARCHIVE_PREFIX: str = "db-archives"
+    DB_DUMP_INTERVAL_DAYS: int = 14
+    DB_DUMP_EXCLUDE_COLLS: list[str] = ["sessions"]
 
 
 settings = Settings()

@@ -85,8 +85,25 @@ class SalesAchievementProgress(BaseModel):
     status: AchievementProgressStatus = AchievementProgressStatus.IN_PROGRESS
     completed_at: datetime | None = None
     claimed_at: datetime | None = None
+    redeemed_at: datetime | None = None
+    redeemed_by_id: str | None = None
+    redeemed_by_name: str | None = None
+    redemption_notes: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class AchievementRedeem(BaseModel):
+    """Body for POST /achievements/progress/{id}/redeem. Notes optional but
+    encouraged (voucher number, delivery date, etc)."""
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class AchievementProgressListResponse(BaseModel):
+    items: list[SalesAchievementProgress]
+    total: int
+    page: int
+    page_size: int
 
 
 class MyAchievementsResponse(BaseModel):

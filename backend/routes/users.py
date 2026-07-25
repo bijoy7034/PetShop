@@ -4,14 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_admin, require_any_user
+from repository.session_repo import SessionRepository
 from repository.user_repo import UserRepository
 from schemas.user import (
+    PasswordResetResponse,
     User,
     UserCreate,
     UserCreateResponse,
     UserListResponse,
     UserUpdate,
 )
+from services import notification_service
 from services.audit_service import record
 from utils.auth import hash_password
 
@@ -140,6 +143,56 @@ async def update_user(
         request=request,
     )
     return after
+
+
+@router.post("/{user_id}/reset-password", response_model=PasswordResetResponse)
+async def admin_reset_password(
+    user_id: str,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin-initiated password reset. Generates a fresh random temp
+    password, sets `must_change_password=true` on the target user,
+    revokes every existing session so the old credentials can't be
+    reused, and returns the temp password ONCE. Frontend must show it
+    to the admin and drop it — we do not store it in plaintext."""
+    target = UserRepository.by_id(user_id)
+    if not target:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if target["_id"] == current["user"]["_id"]:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Use POST /api/auth/change-password to change your own password.",
+        )
+
+    temp = _generate_temp_password()
+    after = UserRepository.update(
+        user_id,
+        {
+            "password_hash": hash_password(temp),
+            "must_change_password": True,
+        },
+    )
+    # Every existing session for this user is now stale — force re-login.
+    SessionRepository.revoke_all_for_user(user_id, reason="admin_password_reset")
+
+    record(
+        AuditAction.USER_PASSWORD_RESET,
+        ResourceType.USER,
+        resource_id=user_id,
+        actor=current["user"],
+        after={"target_email": target["email"], "must_change_password": True},
+        request=request,
+    )
+    notification_service.notify_profile_attention(
+        user_id=user_id,
+        title="Your password was reset by an administrator",
+        body=(
+            "Log in with the temporary password shared by your admin, then "
+            "immediately set a new one from your profile."
+        ),
+    )
+    return PasswordResetResponse(user=after, temporary_password=temp)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

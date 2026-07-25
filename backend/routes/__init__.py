@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
+from routes.admin import router as admin_router
 from routes.analytics import router as analytics_router
 from routes.auth import router as auth_router
 from routes.categories import router as categories_router
 from routes.filters import router as filters_router
 from routes.health import router as health_router
+from routes.notifications import router as notifications_router
 from routes.inventory import router as inventory_router
 from routes.orders import router as orders_router
 from routes.products import router as products_router
@@ -31,3 +33,5 @@ router.include_router(rep_targets_router)
 router.include_router(analytics_router)
 router.include_router(sales_achievements_router)
 router.include_router(filters_router)
+router.include_router(notifications_router)
+router.include_router(admin_router)

@@ -131,6 +131,41 @@ class SalesAchievementProgressRepository:
         return SalesAchievementProgressRepository.by_id(progress_id)
 
     @staticmethod
+    def mark_redeemed(progress_id, *, actor, notes=None):
+        oid = oid_or_none(progress_id)
+        if oid is None:
+            return None
+        now = now_utc()
+        SalesAchievementProgressRepository._coll().update_one(
+            {"_id": oid},
+            {"$set": {
+                "status": AchievementProgressStatus.REDEEMED.value,
+                "redeemed_at": now,
+                "redeemed_by_id": (actor or {}).get("_id"),
+                "redeemed_by_name": (actor or {}).get("name"),
+                "redemption_notes": notes,
+                "updated_at": now,
+            }},
+        )
+        return SalesAchievementProgressRepository.by_id(progress_id)
+
+    @staticmethod
+    def list_by_achievement(achievement_id, *, status=None, skip=0, limit=50):
+        q = {"achievement_id": achievement_id}
+        if status:
+            q["status"] = status
+        cur = (
+            SalesAchievementProgressRepository._coll()
+            .find(q)
+            .sort("updated_at", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        items = [to_public_doc(d) for d in cur]
+        total = SalesAchievementProgressRepository._coll().count_documents(q)
+        return items, total
+
+    @staticmethod
     def delete_by_achievement(achievement_id):
         SalesAchievementProgressRepository._coll().delete_many(
             {"achievement_id": achievement_id}

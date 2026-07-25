@@ -298,6 +298,33 @@ class OrderRepository:
         )
 
     @staticmethod
+    def find_overdue_for_notification(*, now, dedupe_hours=168):
+        """Orders that are past payment_due_date, not fully paid, and
+        weren't notified about being overdue in the last `dedupe_hours`
+        (default 168 = 7 days). Used by the scheduler."""
+        from datetime import timedelta
+        cutoff = now - timedelta(hours=int(dedupe_hours))
+        q = {
+            "payment_due_date": {"$lt": now},
+            "payment_status": {"$ne": "paid"},
+            "outstanding": {"$gt": 0},
+            "$or": [
+                {"overdue_notified_at": {"$exists": False}},
+                {"overdue_notified_at": {"$lt": cutoff}},
+            ],
+        }
+        return [_with_outstanding(d) for d in OrderRepository._coll().find(q)]
+
+    @staticmethod
+    def mark_overdue_notified(order_id):
+        oid = oid_or_none(order_id)
+        if oid is None:
+            return
+        OrderRepository._coll().update_one(
+            {"_id": oid}, {"$set": {"overdue_notified_at": now_utc()}},
+        )
+
+    @staticmethod
     def mark_delivered(order_id, actor, note=None):
         """Also stamps delivered_at and computes payment_due_date from the
         snapshotted credit_period_days."""

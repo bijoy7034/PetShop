@@ -179,6 +179,8 @@
     <li><a href="#filters">Filters</a></li>
     <li><a href="#rep-targets">Rep Targets</a></li>
     <li><a href="#achievements">Achievements</a></li>
+    <li><a href="#notifications">Notifications</a></li>
+    <li><a href="#admin">Admin (system)</a></li>
   </ul>
 
   <div class="group">Reference</div>
@@ -540,6 +542,18 @@ POST /api/orders/{order_id}/deliver</code></pre>
 <div class="endpoint">
   <h4><span class="method DELETE">DELETE</span> /api/users/{user_id} <span class="role">admin</span></h4>
   <p>Hard-delete. Refuses if the caller is deleting themselves.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/users/{user_id}/reset-password <span class="role">admin</span></h4>
+  <p>Admin-initiated password reset. Generates a fresh 16-char temp password, sets <code>must_change_password=true</code> on the target user, revokes every existing session (old tokens dead immediately), and returns the temp password <strong>once</strong>. Frontend must show it to the admin and drop it — we do not store it in plaintext. Also fires a <code>general.profile_attention</code> notification to the target user.</p>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "user": { "_id": "...", "email": "...", "must_change_password": true, &hellip; },
+  "temporary_password": "8Zk4b2p1R7yqN0mV"
+}</code></pre>
+  <p><strong>Login flow after reset:</strong> user logs in with the temp password (200 OK, <code>user.must_change_password=true</code>), frontend routes them to a "must change password" screen, they call <code>POST /api/auth/change-password</code> with old=temp + new=chosen. That clears the flag and rotates the access cookie.</p>
+  <p>Refuses if the admin tries to reset their own password (400) — use <code>POST /api/auth/change-password</code> instead.</p>
 </div>
 
 <!-- ========== CATEGORIES ========== -->
@@ -1422,12 +1436,176 @@ page, page_size</code></pre>
 
 <div class="endpoint">
   <h4><span class="method POST">POST</span> /api/achievements/{achievement_id}/claim <span class="role">sales_rep only</span></h4>
-  <p>Sales rep claims a completed achievement. Re-verifies <code>current_value ≥ target_value</code> at claim time (guards against stale-read racing). Refuses if the achievement is inactive, not yet completed, or already claimed.</p>
+  <p>Sales rep claims a completed achievement. Re-verifies <code>current_value ≥ target_value</code> at claim time (guards against stale-read racing). Refuses if the achievement is inactive, not yet completed, or already claimed. Fires an <code>achievement.claimed</code> notification to every active office/admin so they know a reward is waiting to be handed out.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/achievements/{achievement_id}/progress <span class="role">office/admin</span></h4>
+  <p>Every rep's progress row for one achievement. Filter <code>?status=claimed</code> to see the redemption queue. Returned as-persisted (no live re-hydration) so the admin's view matches what the rep saw at claim time.</p>
+  <p class="label">Query</p>
+  <pre><code>status              in_progress | completed | claimed | redeemed (optional)
+page, page_size     paginated (page_size ≤ 200)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/achievements/progress/{progress_id}/redeem <span class="role">office/admin</span></h4>
+  <p>Marks a <strong>claimed</strong> reward as physically delivered. Refuses any other status. Stamps <code>redeemed_at</code>, <code>redeemed_by_id</code>, <code>redeemed_by_name</code>, and the free-form <code>redemption_notes</code> from the body. Fires an <code>achievement.redeemed</code> notification back to the rep so their app can update on next poll.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "notes": "Handed over voucher V-2026-07-42 during standup" }</code></pre>
 </div>
 
 <div class="endpoint">
   <h4><span class="method DELETE">DELETE</span> /api/achievements/{achievement_id} <span class="role">office/admin</span></h4>
   <p>Cascades — also deletes every per-rep progress row for this achievement.</p>
+</div>
+
+<h2 id="notifications">Notifications (in-app)</h2>
+<p>Per-user, in-app only. Frontend polls <code>/api/notifications</code> every 30-60 s (or the cheaper <code>/unread-count</code> for just the badge). Rows are append-only until the user marks them read.</p>
+
+<div class="callout">
+  <strong>What fires them today.</strong>
+  <ul>
+    <li><strong>Achievements</strong> — <code>achievement.completed</code> (rep hit target), <code>achievement.claimed</code> (office/admin), <code>achievement.redeemed</code> (rep).</li>
+    <li><strong>Orders</strong> — <code>order.placed</code> (office/admin), <code>order.pending_approval</code> (admin, over-credit only), <code>order.approved</code> / <code>order.rejected</code> / <code>order.packed</code> / <code>order.dispatched</code> / <code>order.delivered</code> (rep; delivered fires a copy to admin for ops timeline).</li>
+    <li><strong>Credit</strong> — <code>credit.payment_collected</code> (rep + office), <code>credit.payment_overdue</code> (office/admin, from the daily scheduler tick; deduped 7 days per order via <code>overdue_notified_at</code>), <code>credit.limit_exceeded</code> — reserved for future direct trigger.</li>
+    <li><strong>Inventory</strong> — <code>inventory.low_stock</code> and <code>inventory.out_of_stock</code> (office/admin) — fire only when a stock adjust CROSSES the threshold, so the queue doesn't spam. <code>inventory.new_product</code> to every sales_rep on <code>POST /api/products</code>.</li>
+    <li><strong>General</strong> — <code>general.announcement</code> and <code>general.system_maintenance</code> (via <code>POST /api/notifications/announce</code>), <code>general.profile_attention</code> (e.g. admin reset your password).</li>
+  </ul>
+  Extend by calling <code>notification_service.*</code> from any route.
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/notifications <span class="role">any user</span></h4>
+  <p>Paged list of notifications for the caller. Optional <code>since</code> filter returns only rows strictly newer — pass the last poll's max <code>created_at</code> to fetch deltas only.</p>
+  <p class="label">Query</p>
+  <pre><code>unread_only     true | false (default false)
+since           ISO datetime (optional)
+page, page_size (page_size ≤ 100)</code></pre>
+  <p class="label">Response 200</p>
+  <pre><code>{
+  "items": [
+    {
+      "_id": "...", "user_id": "...", "type": "achievement.completed",
+      "title": "You unlocked 'July Revenue Hero'",
+      "body": "Reward: 2k bonus + badge. Claim it from your Achievements page.",
+      "meta": { "achievement_id": "...", "progress_id": "..." },
+      "link": "/achievements/mine",
+      "is_read": false, "read_at": null,
+      "created_at": "2026-07-25T17:15:44Z"
+    }
+  ],
+  "total": 3,
+  "unread_count": 2,
+  "page": 1, "page_size": 50
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/notifications/unread-count <span class="role">any user</span></h4>
+  <p>Cheap badge poll. One <code>count_documents</code> call.</p>
+  <pre><code>{ "unread_count": 3 }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/notifications/{notification_id}/read <span class="role">any user</span></h4>
+  <p>Marks one row read. 404 if the row doesn't belong to the caller (the scope query means a user can't flip another user's rows).</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/notifications/read-all <span class="role">any user</span></h4>
+  <p>Marks every unread row for this user as read. Returns <code>{ "marked_read": N }</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/notifications/announce <span class="role">admin</span></h4>
+  <p>Broadcast to a role-scoped audience. Use for announcements or scheduled-maintenance banners.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "title": "Warehouse closed on 4-Aug",
+  "body":  "Deliveries resume 5-Aug. Please inform stores.",
+  "audience": "all",          // all | admin | office | sales_rep | admin+office
+  "kind":     "announcement", // announcement | maintenance
+  "link":     null
+}</code></pre>
+  <p><code>kind=maintenance</code> emits <code>general.system_maintenance</code>; anything else emits <code>general.announcement</code>. Frontend can style them differently. Returns <code>{ "delivered_to": N }</code>.</p>
+</div>
+
+<h2 id="admin">Admin (system)</h2>
+<p>Admin-only routes for the ops team: manual DB backups to Cloudflare R2 (also runs bi-weekly via <code>scripts/scheduler.py</code>) and audit-log query with filters + sort.</p>
+
+<div class="callout">
+  <strong>DB archive scheduler.</strong> Run <code>uv run python -m scripts.scheduler</code> as a sidecar / separate process (single instance — the design is deliberately not clustered). Daily tick: overdue-payment notifications every day, full DB dump every <code>DB_DUMP_INTERVAL_DAYS</code> days (default 14). Objects land at <code>{R2_ARCHIVE_PREFIX}/YYYY/YYYY-MM-DDTHH-MM-SSZ.tar.gz</code>. Every collection except those in <code>DB_DUMP_EXCLUDE_COLLS</code> (default: <code>sessions</code>) gets serialised as <code>&lt;coll&gt;.jsonl</code> inside the tar. A <code>manifest.json</code> is packed alongside for restore validation.
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/admin/db-dump/run-now <span class="role">admin</span></h4>
+  <p>Kick off an archive immediately. Sync — blocks until the upload finishes (usually a few seconds; scales with total doc count). Returns the R2 key + a one-hour presigned download URL so the caller can grab the file without hitting the Cloudflare dashboard.</p>
+  <pre><code>{
+  "key": "db-archives/2026/2026-07-25T17-24-06Z.tar.gz",
+  "database": "petshop",
+  "size_bytes": 148234,
+  "total_docs": 4213,
+  "per_collection": { "users": 4, "orders": 34, &hellip; },
+  "download_url": "https://&hellip;.r2.cloudflarestorage.com/&hellip;?X-Amz-Signature=&hellip;",
+  "download_url_ttl_seconds": 3600
+}</code></pre>
+  <p>503 if R2 isn't configured.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/admin/db-dump/archives <span class="role">admin</span></h4>
+  <p>List archives currently in R2 (most-recent first). Cheap <code>ListObjectsV2</code> call.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/admin/db-dump/download-url <span class="role">admin</span></h4>
+  <p>Mint a fresh presigned URL for one archive. Use when the one returned by <code>/run-now</code> has expired.</p>
+  <p class="label">Query</p>
+  <pre><code>key           R2 object key (from /archives)
+ttl_seconds   60 - 86400 (default 3600)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/admin/audit-logs <span class="role">admin</span></h4>
+  <p>Every write across the app leaves an audit row (login, user CRUD, order transitions, inventory adjust, credit-limit changes, etc.). This route returns rows with <code>before</code>/<code>after</code> diffs so a UI can render a state-change timeline. Indexed on <code>at desc</code>, <code>actor_id</code>, <code>(resource_type, resource_id)</code>, and <code>action</code>.</p>
+  <p class="label">Query</p>
+  <pre><code>action          exact match, e.g. 'order.accept'
+resource_type   exact, e.g. 'order' | 'user' | 'inventory'
+resource_id     exact
+actor_id        exact
+actor_email     case-insensitive substring
+ip              exact
+from, to        ISO datetime range
+search          free-text over action / resource_type / actor
+sort_by         at | action | resource_type | actor_email (default: at)
+sort_dir        asc | desc (default: desc)
+page, page_size (page_size ≤ 200)</code></pre>
+  <p class="label">Response 200 (single item)</p>
+  <pre><code>{
+  "_id": "...",
+  "action": "order.accept",
+  "resource_type": "order",
+  "resource_id": "6a6...",
+  "actor_id": "66aa...",
+  "actor_name": "Priya",
+  "actor_email": "office@petshop.example",
+  "actor_role": "office_staff",
+  "before": { "status": "placed" },
+  "after":  { "status": "accepted", "edited": false },
+  "at": "2026-07-25T17:24:06Z",
+  "request_id": "6b3e00db...",
+  "ip": "10.0.0.42"
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/admin/audit-logs/actions <span class="role">admin</span></h4>
+  <p>Distinct <code>action</code> names — for populating a filter dropdown.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/admin/audit-logs/resource-types <span class="role">admin</span></h4>
+  <p>Distinct <code>resource_type</code> values.</p>
 </div>
 
 <!-- ========== REFERENCE ========== -->

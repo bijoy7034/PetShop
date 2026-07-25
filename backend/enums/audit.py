@@ -12,6 +12,7 @@ class ResourceType(StrEnum):
     ORDER = "order"
     REP_TARGET = "rep_target"
     ACHIEVEMENT = "achievement"
+    NOTIFICATION = "notification"
 
 
 class AuditAction(StrEnum):
@@ -99,3 +100,8 @@ class AuditAction(StrEnum):
     ACHIEVEMENT_UPDATE = "achievement.update"
     ACHIEVEMENT_DELETE = "achievement.delete"
     ACHIEVEMENT_CLAIM = "achievement.claim"
+    ACHIEVEMENT_REDEEM = "achievement.redeem"
+
+    # notifications
+    NOTIFICATION_READ = "notification.read"
+    NOTIFICATION_READ_ALL = "notification.read_all"

@@ -29,6 +29,7 @@ from schemas.product import (
     VariantCreate,
     VariantUpdate,
 )
+from services import notification_service
 from services.audit_service import record
 from services.product_service import expand_option_sets, import_products
 from utils import r2_storage
@@ -230,6 +231,7 @@ async def create_product(
         },
         request=request,
     )
+    notification_service.notify_new_product(product=p)
     return _with_inventory(p)
 
 
@@ -519,6 +521,15 @@ async def adjust_variant_stock(
             "quantity_on_hand": updated["quantity_on_hand"],
         },
         request=request,
+    )
+    variant = next((v for v in p["variants"] if v["id"] == variant_id), {})
+    notification_service.check_stock_after_adjust(
+        updated=updated,
+        product_name=p["name"],
+        variant_label=variant.get("name") or variant.get("size")
+                       or variant.get("weight") or variant.get("color"),
+        variant_id=variant_id,
+        product_id=product_id,
     )
     return _with_inventory(ProductRepository.by_id(product_id))
 

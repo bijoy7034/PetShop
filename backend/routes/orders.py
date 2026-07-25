@@ -22,6 +22,7 @@ from schemas.order import (
     OrderReject,
     PaymentCreate,
 )
+from services import notification_service
 from services.audit_service import record
 from services.order_service import (
     apply_accept_adjustments,
@@ -157,6 +158,7 @@ async def place_order(
         },
         request=request,
     )
+    notification_service.notify_order_placed(order=order)
     return order
 
 
@@ -208,6 +210,9 @@ async def admin_approve_order(
         after={"status": after["status"], "credit_held": total},
         request=request,
     )
+    notification_service.notify_order_status(
+        order=after, prev_status=order["status"], actor=current["user"],
+    )
     return after
 
 
@@ -239,6 +244,9 @@ async def admin_reject_order(
         before={"status": order["status"]},
         after={"status": after["status"], "rejection_reason": payload.reason},
         request=request,
+    )
+    notification_service.notify_order_status(
+        order=after, prev_status=order["status"], actor=current["user"],
     )
     return after
 
@@ -343,6 +351,9 @@ def _transition_route(target_status, audit_action):
             after={"status": target_status},
             request=request,
         )
+        notification_service.notify_order_status(
+            order=after, prev_status=order["status"], actor=current["user"],
+        )
         return after
 
     return _handler
@@ -410,6 +421,9 @@ async def record_payment(
             "method": payload.method,
         },
         request=request,
+    )
+    notification_service.notify_payment_collected(
+        order=after, amount=payload.amount, actor=current["user"],
     )
     return after
 
@@ -503,6 +517,9 @@ async def accept_order(
         },
         request=request,
     )
+    notification_service.notify_order_status(
+        order=after, prev_status=order["status"], actor=current["user"],
+    )
     return after
 
 
@@ -546,6 +563,9 @@ async def deliver_order(
             "payment_due_date": after.get("payment_due_date"),
         },
         request=request,
+    )
+    notification_service.notify_order_status(
+        order=after, prev_status=order["status"], actor=current["user"],
     )
     return after
 
