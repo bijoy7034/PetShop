@@ -33,6 +33,25 @@ services:
     networks:
       - petshop
 
+  # Daily DB → R2 archive + overdue-payment scan. Reuses the backend
+  # image; only the entrypoint changes. Run exactly one instance —
+  # multiple replicas would double-dump.
+  scheduler:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${DB_NAME}?authSource=admin
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: ["uv", "run", "python", "-m", "scripts.scheduler"]
+    networks:
+      - petshop
+
 volumes:
   mongo_data:
 

@@ -1,10 +1,16 @@
-"""Bi-weekly DB → R2 archive scheduler.
+"""Daily DB → R2 archive scheduler.
 
 Run as a sidecar container / process:
     uv run python -m scripts.scheduler
 
-Sleeps DB_DUMP_INTERVAL_DAYS (default 14) between runs. Errors are
-logged and swallowed — one failed dump doesn't stop the schedule.
+The loop ticks every 24 h. On each tick:
+  1. Scans overdue orders and fires notifications.
+  2. Runs a fresh Mongo → R2 archive dump if DB_DUMP_INTERVAL_DAYS
+     have passed since the last dump.
+
+Default DB_DUMP_INTERVAL_DAYS is 1 (daily). Set to 7 for weekly, 14
+for bi-weekly, etc. Errors on either task are logged and swallowed —
+one failed dump doesn't stop the schedule.
 
 Deploy note: if you run multiple replicas of this scheduler, they will
 BOTH dump every interval. Run exactly one instance. If you need HA,

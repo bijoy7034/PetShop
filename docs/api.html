@@ -1688,10 +1688,10 @@ page, page_size (page_size ≤ 100)</code></pre>
 </div>
 
 <h2 id="admin">Admin (system)</h2>
-<p>Admin-only routes for the ops team: manual DB backups to Cloudflare R2 (also runs bi-weekly via <code>scripts/scheduler.py</code>) and audit-log query with filters + sort.</p>
+<p>Admin-only routes for the ops team: manual DB backups to Cloudflare R2 (also runs on a daily schedule via <code>scripts/scheduler.py</code>) and audit-log query with filters + sort.</p>
 
 <div class="callout">
-  <strong>DB archive scheduler.</strong> Run <code>uv run python -m scripts.scheduler</code> as a sidecar / separate process (single instance — the design is deliberately not clustered). Daily tick: overdue-payment notifications every day, full DB dump every <code>DB_DUMP_INTERVAL_DAYS</code> days (default 14). Objects land at <code>{R2_ARCHIVE_PREFIX}/YYYY/YYYY-MM-DDTHH-MM-SSZ.tar.gz</code>. Every collection except those in <code>DB_DUMP_EXCLUDE_COLLS</code> (default: <code>sessions</code>) gets serialised as <code>&lt;coll&gt;.jsonl</code> inside the tar. A <code>manifest.json</code> is packed alongside for restore validation.
+  <strong>DB archive scheduler.</strong> Runs alongside the backend as the <code>scheduler</code> service in <code>docker-compose.yml</code> — single instance (the design is deliberately not clustered). Ticks every 24 h: overdue-payment notifications every day, full DB dump every <code>DB_DUMP_INTERVAL_DAYS</code> days (default <strong>1</strong> — daily). Set <code>DB_DUMP_INTERVAL_DAYS=7</code> for weekly, <code>14</code> for bi-weekly, etc. Objects land at <code>{R2_ARCHIVE_PREFIX}/YYYY/YYYY-MM-DDTHH-MM-SSZ.tar.gz</code>. Every collection except those in <code>DB_DUMP_EXCLUDE_COLLS</code> (default: <code>sessions</code>) gets serialised as <code>&lt;coll&gt;.jsonl</code> inside the tar. A <code>manifest.json</code> is packed alongside for restore validation.
 </div>
 
 <div class="endpoint">

@@ -101,7 +101,9 @@ class Settings(BaseSettings):
     # R2_BUCKET/{R2_ARCHIVE_PREFIX}/... every DB_DUMP_INTERVAL_DAYS days
     # (14 = bi-weekly). Collections in DB_DUMP_EXCLUDE_COLLS are skipped.
     R2_ARCHIVE_PREFIX: str = "db-archives"
-    DB_DUMP_INTERVAL_DAYS: int = 14
+    # Bi-weekly (14) was the old default; user requested daily. Set to
+    # 1 to run every scheduler tick (which already fires daily).
+    DB_DUMP_INTERVAL_DAYS: int = 1
     DB_DUMP_EXCLUDE_COLLS: list[str] = ["sessions"]
 
 
