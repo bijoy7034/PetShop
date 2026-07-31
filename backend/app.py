@@ -8,6 +8,7 @@ from config.config import settings
 from config.db import mongo_manager
 from config.logging.logger import logger
 from middleware.csrf import CSRFMiddleware
+from middleware.rate_limit import RateLimitMiddleware
 from middleware.request_id import RequestIDTrackingMiddleware
 from routes import router
 from scripts.seed_admin import seed_first_admin
@@ -47,6 +48,7 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestIDTrackingMiddleware)
 
 app.add_exception_handler(RequestValidationError, validation_exception_handler)

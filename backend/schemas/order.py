@@ -45,6 +45,11 @@ class OrderCreate(BaseModel):
     lines: list[OrderLineCreate] = Field(min_length=1)
     notes: str | None = Field(default=None, max_length=1000)
     expected_delivery_date: datetime | None = None
+    # Override the store's default credit_period_days for THIS order
+    # only. Snapshotted onto the order at placement so future store
+    # edits don't rewrite the due date. Defaults to the store's setting
+    # (30 days if the store has none).
+    credit_period_days: int | None = Field(default=None, ge=0, le=365)
 
 
 class OrderStatusEvent(BaseModel):

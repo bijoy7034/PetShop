@@ -32,6 +32,7 @@ class NotificationType(StrEnum):
     ANNOUNCEMENT = "general.announcement"
     SYSTEM_MAINTENANCE = "general.system_maintenance"
     PROFILE_ATTENTION = "general.profile_attention"    # e.g. must_change_password
+    CUSTOM = "general.custom"                          # human-authored via /send
 
 
 class NotificationChannel(StrEnum):

@@ -52,3 +52,20 @@ class AnnouncementCreate(BaseModel):
 
 class AnnouncementResult(BaseModel):
     delivered_to: int
+
+
+class CustomNotificationSend(BaseModel):
+    """Human-authored notification. At least one of `recipient_user_ids`
+    or `recipient_roles` must be non-empty. Recipients are the union
+    of the two sets (roles resolve to every active user in that role)."""
+    title: str = Field(min_length=1, max_length=200)
+    message: str | None = Field(default=None, max_length=2000)
+    recipient_user_ids: list[str] = []
+    recipient_roles: list[str] = []
+    link: str | None = Field(default=None, max_length=500)
+
+
+class CustomNotificationResult(BaseModel):
+    delivered_to: int
+    sender_id: str | None = None
+    sender_name: str | None = None

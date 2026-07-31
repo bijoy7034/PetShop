@@ -347,6 +347,100 @@ class StoreRepository:
         }
 
     @staticmethod
+    def store_info_dashboard(*, sales_rep_id=None):
+        """One tile per store the rep is assigned to (or every store
+        for office/admin). Each tile carries credit + per-status order
+        counts computed in a single aggregation over the orders
+        collection — no per-store round-trips."""
+        from repository.order_repo import OrderRepository
+
+        q = {}
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        stores = list(StoreRepository._coll().find(q))
+        store_ids = [str(s["_id"]) for s in stores]
+        if not store_ids:
+            return {"total_stores": 0, "stores": []}
+
+        # Group orders by (store_id, status) in one pass.
+        pipeline = [
+            {"$match": {"store_id": {"$in": store_ids}}},
+            {"$group": {
+                "_id": {"store": "$store_id", "status": "$status"},
+                "count": {"$sum": 1},
+            }},
+        ]
+        counts_map = {}
+        for row in OrderRepository._coll().aggregate(pipeline):
+            k = row["_id"]
+            counts_map.setdefault(k["store"], {})[k["status"]] = int(row["count"])
+
+        statuses = (
+            "placed", "accepted", "packing", "out_for_delivery",
+            "delivered", "waiting_for_stock", "ready_to_submit",
+            "pending_admin_approval", "delayed", "cancelled",
+        )
+        tiles = []
+        for s in stores:
+            sid = str(s["_id"])
+            limit = float(s.get("credit_limit") or 0)
+            used = float(s.get("credit_used") or 0)
+            per = counts_map.get(sid, {})
+            tiles.append({
+                "id": sid,
+                "code": s.get("code"),
+                "name": s.get("name"),
+                "district": s.get("district"),
+                "credit_limit": round(limit, 2),
+                "credit_utilized": round(used, 2),
+                "available_credit": round(limit - used, 2),
+                "is_over_credit_limit": used > limit + 1e-6,
+                "order_counts": {st: int(per.get(st, 0)) for st in statuses},
+            })
+        tiles.sort(key=lambda t: t["name"] or "")
+        return {"total_stores": len(tiles), "stores": tiles}
+
+    @staticmethod
+    def over_credit_report(*, district=None, search=None):
+        """Every approved store where credit_used > credit_limit OR
+        available_credit < 0 — the same condition, both phrasings.
+        Includes the excess amount so the frontend can rank."""
+        q = {"status": "approved"}
+        if district:
+            q["district"] = district
+        if search:
+            q["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"location": {"$regex": search, "$options": "i"}},
+                {"code": {"$regex": search, "$options": "i"}},
+            ]
+        pipeline = [
+            {"$match": q},
+            {"$match": {"$expr": {"$gt": [
+                {"$ifNull": ["$credit_used", 0]},
+                {"$ifNull": ["$credit_limit", 0]},
+            ]}}},
+            {"$sort": {"credit_used": -1}},
+        ]
+        rows = []
+        for s in StoreRepository._coll().aggregate(pipeline):
+            limit = float(s.get("credit_limit") or 0)
+            used = float(s.get("credit_used") or 0)
+            rows.append({
+                "store_id": str(s["_id"]),
+                "store_code": s.get("code"),
+                "store_name": s.get("name"),
+                "district": s.get("district"),
+                "sales_rep_id": s.get("sales_rep_id"),
+                "sales_rep_name": s.get("sales_rep_name"),
+                "credit_limit": round(limit, 2),
+                "credit_utilized": round(used, 2),
+                "available_credit": round(limit - used, 2),
+                "excess_amount": round(used - limit, 2),
+            })
+        return {"total_stores": len(rows), "stores": rows}
+
+    @staticmethod
     def districts_summary(*, month_start, month_end):
         """District-wise breakdown: approved stores + monthly revenue
         + credit exposure. Revenue is Σ(order.total) over counted-status
@@ -433,14 +527,23 @@ class StoreRepository:
 
     @staticmethod
     def list(sales_rep_id=None, status=None, credit_change_status=None,
-             search=None, skip=0, limit=50):
+             search=None, ids=None, statuses=None,
+             skip=0, limit=50):
         q = {}
         if sales_rep_id:
             q["sales_rep_id"] = sales_rep_id
-        if status:
+        if statuses:
+            q["status"] = {"$in": list(statuses)}
+        elif status:
             q["status"] = status
         if credit_change_status:
             q["credit_change_status"] = credit_change_status
+        if ids:
+            oids = [oid_or_none(i) for i in ids]
+            oids = [o for o in oids if o is not None]
+            if not oids:
+                return [], 0
+            q["_id"] = {"$in": oids}
         if search:
             q["$or"] = [
                 {"name": {"$regex": search, "$options": "i"}},
@@ -474,6 +577,7 @@ class StoreRepository:
         district=None,
         status=StoreStatus.PENDING.value,
         credit_limit=0.0,
+        credit_used=0.0,
         credit_period_days=30,
         is_free_cancellation=True,
         cancellation_charges=0.0,
@@ -494,7 +598,7 @@ class StoreRepository:
             "sales_rep_name": sales_rep_name,
             "status": status,
             "credit_limit": float(credit_limit or 0.0),
-            "credit_used": 0.0,
+            "credit_used": float(credit_used or 0.0),
             "pending_credit_limit": None,
             "credit_change_status": CreditChangeStatus.NONE.value,
             "reject_reason": None,

@@ -2865,6 +2865,127 @@
           ]
         },
         {
+          "name": "Developer & Refinements",
+          "description": "Developer console (client settings), custom notifications, store info dashboard, over-credit report, bulk rep-targets, delivery routing, and array-filter examples.",
+          "item": [
+            {
+              "name": "GET client settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": { "raw": "{{base_url}}/api/settings", "host": ["{{base_url}}"], "path": ["api", "settings"] }
+              }
+            },
+            {
+              "name": "PATCH client settings (developer/admin)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"company_name\": \"Merxio\",\n  \"phone\": \"+91 99999 99999\",\n  \"support_email\": \"hello@merxio.ai\",\n  \"theme_colors\": { \"primary\": \"#050505\", \"accent\": \"#ffffff\" }\n}" },
+                "url": { "raw": "{{base_url}}/api/settings", "host": ["{{base_url}}"], "path": ["api", "settings"] }
+              }
+            },
+            {
+              "name": "Custom notification — send to userIds + roles",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"title\": \"Please read\",\n  \"message\": \"Ops update — check your feed.\",\n  \"recipient_user_ids\": [],\n  \"recipient_roles\": [\"office_staff\", \"sales_rep\"]\n}" },
+                "url": { "raw": "{{base_url}}/api/notifications/send", "host": ["{{base_url}}"], "path": ["api", "notifications", "send"] }
+              }
+            },
+            {
+              "name": "Store info dashboard (grid + status counts)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/info-dashboard",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "info-dashboard"],
+                  "query": [ { "key": "rep_id", "value": "{{rep_user_id}}", "disabled": true } ]
+                }
+              }
+            },
+            {
+              "name": "Over-credit report (excess amount per store)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/over-credit-report",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "over-credit-report"]
+                }
+              }
+            },
+            {
+              "name": "Bulk rep targets (identical for every active rep)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"year\": 2026,\n  \"month\": 8,\n  \"overall_target\": 500000,\n  \"category_targets\": [],\n  \"on_conflict\": \"skip\"\n}" },
+                "url": { "raw": "{{base_url}}/api/rep-targets/bulk", "host": ["{{base_url}}"], "path": ["api", "rep-targets", "bulk"] }
+              }
+            },
+            {
+              "name": "Delivery — optimize route",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"start\": { \"lat\": 12.9716, \"lng\": 77.5946 },\n  \"stops\": [\n    { \"store_id\": \"{{store_id}}\", \"order_id\": \"{{order_id}}\", \"lat\": 12.99, \"lng\": 77.63 }\n  ],\n  \"driver_id\": \"drv-1\", \"driver_name\": \"Ravi\"\n}" },
+                "url": { "raw": "{{base_url}}/api/delivery/optimize", "host": ["{{base_url}}"], "path": ["api", "delivery", "optimize"] }
+              }
+            },
+            {
+              "name": "Delivery — bulk dispatch packed orders",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": { "mode": "raw", "raw": "{\n  \"order_ids\": [\"{{order_id}}\"]\n}" },
+                "url": { "raw": "{{base_url}}/api/delivery/dispatch", "host": ["{{base_url}}"], "path": ["api", "delivery", "dispatch"] }
+              }
+            },
+            {
+              "name": "Array filters — orders with status=accepted,placed",
+              "request": {
+                "method": "GET", "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders?status=accepted,placed",
+                  "host": ["{{base_url}}"], "path": ["api", "orders"],
+                  "query": [ { "key": "status", "value": "accepted,placed" } ]
+                }
+              }
+            },
+            {
+              "name": "Array filters — products?ids=A,B,C",
+              "request": {
+                "method": "GET", "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/products?ids={{product_id}}",
+                  "host": ["{{base_url}}"], "path": ["api", "products"],
+                  "query": [ { "key": "ids", "value": "{{product_id}}" } ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Admin (system)",
           "description": "Admin-only utilities: manual DB dump to Cloudflare R2 (also runs bi-weekly via scripts/scheduler.py), archive browsing with signed download URLs, and audit-log query with filter + sort.",
           "item": [

@@ -12,7 +12,9 @@ from routes.orders import router as orders_router
 from routes.payments import router as payments_router
 from routes.products import router as products_router
 from routes.rep_targets import router as rep_targets_router
+from routes.routes import router as delivery_router
 from routes.sales_achievements import router as sales_achievements_router
+from routes.settings import router as settings_router
 from routes.stores import router as stores_router
 from routes.subcategories import router as subcategories_router
 from routes.users import router as users_router
@@ -36,4 +38,6 @@ router.include_router(analytics_router)
 router.include_router(sales_achievements_router)
 router.include_router(filters_router)
 router.include_router(notifications_router)
+router.include_router(settings_router)
+router.include_router(delivery_router)
 router.include_router(admin_router)

@@ -393,6 +393,31 @@ def broadcast(*, type, title, body=None, meta=None, link=None,
     ])
 
 
+def send_custom(*, sender, title, message=None, link=None,
+                recipient_user_ids=None, recipient_roles=None):
+    """Human-authored notification. Union of recipient_user_ids and
+    users in recipient_roles (active only). Sender info is stamped
+    into meta so recipients can see who sent it. Returns the number
+    of rows written."""
+    user_ids = set(recipient_user_ids or [])
+    if recipient_roles:
+        user_ids |= set(_role_ids(recipient_roles))
+    if not user_ids:
+        return 0
+    meta = {
+        "sender_id": (sender or {}).get("_id"),
+        "sender_name": (sender or {}).get("name"),
+        "sender_role": (sender or {}).get("role"),
+        "recipient_roles": recipient_roles or [],
+    }
+    NotificationRepository.bulk_create([
+        {"user_id": uid, "type": NotificationType.CUSTOM,
+         "title": title, "body": message, "meta": meta, "link": link}
+        for uid in user_ids
+    ])
+    return len(user_ids)
+
+
 def notify_profile_attention(*, user_id, title, body=None):
     """Prompt a specific user (e.g. 'must change password')."""
     NotificationRepository.create(

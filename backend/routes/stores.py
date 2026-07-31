@@ -14,11 +14,13 @@ from schemas.analytics import (
 from schemas.store import (
     CreditLimitPropose,
     CreditLimitReject,
+    OverCreditReport,
     RepStoreSummary,
     Store,
     StoreApprove,
     StoreAssign,
     StoreCreate,
+    StoreInfoResponse,
     StoreListResponse,
     StoreReject,
     StoreUpdate,
@@ -43,7 +45,14 @@ def _visible(user, store):
 
 @router.get("", response_model=StoreListResponse)
 async def list_stores(
-    status_filter: str | None = Query(None, alias="status"),
+    ids: str | None = Query(
+        None,
+        description="Comma-separated store _ids to hydrate a specific set.",
+    ),
+    status_filter: str | None = Query(
+        None, alias="status",
+        description="Single status OR comma-separated list.",
+    ),
     credit_change_status: str | None = Query(
         None,
         description="Filter by pending credit-limit changes: 'pending' | 'none' | 'approved' | 'rejected'.",
@@ -56,11 +65,13 @@ async def list_stores(
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
 ):
+    from helpers.query import csv_list
     skip = (page - 1) * page_size
     sales_rep_id = None if _is_office(current["user"]) else current["user"]["_id"]
     items, total = StoreRepository.list(
         sales_rep_id=sales_rep_id,
-        status=status_filter,
+        ids=csv_list(ids),
+        statuses=csv_list(status_filter),
         credit_change_status=credit_change_status,
         search=search,
         skip=skip,
@@ -85,6 +96,35 @@ async def rep_store_summary(
     user = current["user"]
     effective_rep = rep_id if _is_office(user) else user["_id"]
     return StoreRepository.rep_summary(rep_id=effective_rep)
+
+
+@router.get("/info-dashboard", response_model=StoreInfoResponse)
+async def store_info_dashboard(
+    rep_id: str | None = Query(
+        None,
+        description="Office/admin can pass any rep id; sales_rep is force-scoped to their own book.",
+    ),
+    current=Depends(require_any_user),
+):
+    """Grid of the caller's stores with credit tile + per-status
+    order counts. Sales rep is force-scoped to their own assigned
+    stores; office/admin can pass any rep_id or omit for global view."""
+    user = current["user"]
+    effective_rep = rep_id if _is_office(user) else user["_id"]
+    return StoreRepository.store_info_dashboard(sales_rep_id=effective_rep)
+
+
+@router.get("/over-credit-report", response_model=OverCreditReport)
+async def over_credit_report(
+    district: str | None = Query(None),
+    search: str | None = Query(None),
+    _=Depends(require_office),
+):
+    """Every approved store where credit_utilized > credit_limit
+    (equivalently: available_credit < 0). Sorted worst-first."""
+    return StoreRepository.over_credit_report(
+        district=district, search=search,
+    )
 
 
 @router.get("/credit-violations-report", response_model=CreditViolationsReport)
@@ -219,6 +259,12 @@ async def create_store(
         )
 
     credit_limit = float(payload.credit_limit or 0)
+    credit_utilized = float(payload.credit_utilized or 0)
+    if credit_utilized > credit_limit:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"credit_utilized ({credit_utilized}) cannot exceed credit_limit ({credit_limit}) at store creation.",
+        )
     store = StoreRepository.insert(
         sales_rep_id=target["_id"],
         sales_rep_name=target.get("name"),
@@ -232,6 +278,7 @@ async def create_store(
         notes=payload.notes,
         status=StoreStatus.APPROVED.value,
         credit_limit=credit_limit,
+        credit_used=credit_utilized,
         credit_period_days=payload.credit_period_days,
         is_free_cancellation=payload.is_free_cancellation,
         cancellation_charges=payload.cancellation_charges,
@@ -536,9 +583,31 @@ async def recommended_products_for_store(
     source, items = analytics.recommended_products_for_store(
         store_id, district=store.get("district"), limit=limit,
     )
+    # Hydrate each ranking snapshot into a full Product doc + score
+    # metadata. Frontend can reuse the existing product card without
+    # mapping.
+    from repository.product_repo import ProductRepository
+    recommended = []
+    for rank, item in enumerate(items, start=1):
+        product = ProductRepository.by_id(item["product_id"])
+        if not product:
+            continue
+        recommended.append({
+            "product": product,
+            "recommendation": {
+                "variant_id": item.get("variant_id"),
+                "variant_label": item.get("variant_label"),
+                "qty": int(item.get("qty") or 0),
+                "revenue": float(item.get("revenue") or 0),
+                "orders": int(item.get("orders") or 0),
+                "last_ordered_at": item.get("last_ordered_at"),
+                "source": source,
+                "rank": rank,
+            },
+        })
     return {
         "store_id": store_id,
         "store_name": store.get("name"),
         "source": source,
-        "items": items,
+        "recommended_products": recommended,
     }

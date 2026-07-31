@@ -465,10 +465,19 @@ class InventoryRepository:
 
     @staticmethod
     def list(product_id=None, low_stock=None, category_id=None,
-             search=None, skip=0, limit=50):
+             search=None, product_ids=None, ids=None,
+             skip=0, limit=50):
         q = {}
-        if product_id:
+        if product_ids:
+            q["product_id"] = {"$in": list(product_ids)}
+        elif product_id:
             q["product_id"] = product_id
+        if ids:
+            oids = [oid_or_none(i) for i in ids]
+            oids = [o for o in oids if o is not None]
+            if not oids:
+                return [], 0
+            q["_id"] = {"$in": oids}
         if low_stock:
             q["$expr"] = {
                 "$and": [

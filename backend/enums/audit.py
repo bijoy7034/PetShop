@@ -13,6 +13,8 @@ class ResourceType(StrEnum):
     REP_TARGET = "rep_target"
     ACHIEVEMENT = "achievement"
     NOTIFICATION = "notification"
+    SETTINGS = "settings"
+    DELIVERY_ROUTE = "delivery_route"
 
 
 class AuditAction(StrEnum):
@@ -109,3 +111,14 @@ class AuditAction(StrEnum):
     # notifications
     NOTIFICATION_READ = "notification.read"
     NOTIFICATION_READ_ALL = "notification.read_all"
+    NOTIFICATION_SEND = "notification.send"
+
+    # settings
+    SETTINGS_UPDATE = "settings.update"
+
+    # delivery routes
+    ROUTE_CREATE = "route.create"
+    ORDER_BULK_DISPATCH = "order.bulk_dispatch"
+
+    # bulk rep targets
+    REP_TARGET_BULK_CREATE = "rep_target.bulk_create"

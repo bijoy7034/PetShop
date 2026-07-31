@@ -100,16 +100,29 @@ class ProductRepository:
         return _to_public(ProductRepository._coll().find_one({"name": name}))
 
     @staticmethod
-    def list(category_id=None, subcategory_id=None, search=None, skip=0, limit=50):
+    def list(category_id=None, subcategory_id=None, search=None,
+             ids=None, category_ids=None, subcategory_ids=None,
+             skip=0, limit=50):
         q = {}
-        if category_id:
+        if category_ids:
+            q["category_id"] = {"$in": list(category_ids)}
+        elif category_id:
             q["category_id"] = category_id
-        if subcategory_id:
+        if subcategory_ids:
+            q["subcategory_id"] = {"$in": list(subcategory_ids)}
+        elif subcategory_id:
             q["subcategory_id"] = subcategory_id
+        if ids:
+            oids = [oid_or_none(i) for i in ids]
+            oids = [o for o in oids if o is not None]
+            if not oids:
+                return [], 0
+            q["_id"] = {"$in": oids}
         if search:
             q["$or"] = [
                 {"name": {"$regex": search, "$options": "i"}},
                 {"variants.sku": {"$regex": search, "$options": "i"}},
+                {"code": {"$regex": search, "$options": "i"}},
             ]
         cur = (
             ProductRepository._coll()

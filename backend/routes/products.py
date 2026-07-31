@@ -102,17 +102,33 @@ def _many_with_inventory(products):
 
 @router.get("", response_model=ProductListResponse)
 async def list_products(
+    ids: str | None = Query(
+        None,
+        description="Comma-separated product _ids to hydrate a specific set.",
+    ),
     category_id: str | None = Query(None),
+    category_ids: str | None = Query(
+        None,
+        description="Comma-separated category ids (alternative to category_id).",
+    ),
     subcategory_id: str | None = Query(None),
-    search: str | None = Query(None),
+    subcategory_ids: str | None = Query(None),
+    search: str | None = Query(
+        None,
+        description="Case-insensitive substring across product name / variant SKU / product code.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     _=Depends(require_any_user),
 ):
+    from helpers.query import csv_list
     skip = (page - 1) * page_size
     items, total = ProductRepository.list(
+        ids=csv_list(ids),
         category_id=category_id,
+        category_ids=csv_list(category_ids),
         subcategory_id=subcategory_id,
+        subcategory_ids=csv_list(subcategory_ids),
         search=search,
         skip=skip,
         limit=page_size,

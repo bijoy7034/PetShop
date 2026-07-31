@@ -288,16 +288,43 @@ class OrderRepository:
 
     @staticmethod
     def list(sales_rep_id=None, store_id=None, status=None, payment_status=None,
-             over_credit_approved=None, search=None, skip=0, limit=50):
+             over_credit_approved=None, search=None,
+             ids=None, statuses=None, payment_statuses=None,
+             overdue_only=False,
+             skip=0, limit=50):
+        """List orders. Accepts both scalar and array filters:
+          - status vs statuses: statuses (list) takes precedence
+          - payment_status vs payment_statuses: same rule
+          - ids: filter to a specific set of order _ids
+          - overdue_only: unpaid orders past payment_due_date
+        """
+        from datetime import datetime as _dt, timezone as _tz
         q = {}
         if sales_rep_id:
             q["sales_rep_id"] = sales_rep_id
         if store_id:
             q["store_id"] = store_id
-        if status:
+        if statuses:
+            q["status"] = {"$in": list(statuses)}
+        elif status:
             q["status"] = status
-        if payment_status:
+        if payment_statuses:
+            q["payment_status"] = {"$in": list(payment_statuses)}
+        elif payment_status == "overdue":
+            # Convenience: payment_status=overdue collapses to
+            # unpaid + past-due-date.
+            overdue_only = True
+        elif payment_status:
             q["payment_status"] = payment_status
+        if overdue_only:
+            q["payment_due_date"] = {"$lt": _dt.now(_tz.utc)}
+            q["payment_status"] = {"$ne": "paid"}
+        if ids:
+            oids = [oid_or_none(i) for i in ids]
+            oids = [o for o in oids if o is not None]
+            if not oids:
+                return [], 0
+            q["_id"] = {"$in": oids}
         if over_credit_approved is True:
             q["over_credit_approved"] = True
         elif over_credit_approved is False:
@@ -331,6 +358,7 @@ class OrderRepository:
         status=OrderStatus.PLACED.value,
         expected_delivery_date=None,
         sibling_order_id=None,
+        credit_period_days_override=None,
     ):
         """Insert an order and snapshot every store field that could later
         change (name, address, district, credit terms, cancellation policy)
@@ -383,7 +411,11 @@ class OrderRepository:
             "payment_status": PaymentStatus.PENDING.value,
             "amount_paid": 0.0,
             "payment_history": [],
-            "credit_period_days": int(store.get("credit_period_days") or 30),
+            "credit_period_days": int(
+                credit_period_days_override
+                if credit_period_days_override is not None
+                else (store.get("credit_period_days") or 30)
+            ),
             "payment_due_date": None,
             "is_free_cancellation": bool(store.get("is_free_cancellation", True)),
             "cancellation_charges": float(store.get("cancellation_charges") or 0.0),

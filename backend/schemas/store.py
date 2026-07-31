@@ -27,6 +27,11 @@ class StoreCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
     sales_rep_id: str | None = None
     credit_limit: float | None = Field(default=None, ge=0)
+    # Opening credit balance for stores migrated from another system —
+    # e.g. a customer already carrying ₹45,000 outstanding gets seeded
+    # with credit_utilized=45000 so available_credit reflects reality
+    # from day one. Only honoured when admin/office creates the store.
+    credit_utilized: float | None = Field(default=None, ge=0)
     credit_period_days: int | None = Field(default=None, ge=0, le=365)
     is_free_cancellation: bool | None = None
     cancellation_charges: float | None = Field(default=None, ge=0)
@@ -128,6 +133,57 @@ class CreditViolationsBreakdown(BaseModel):
     limit_exceeded_count: int
     period_overdue_count: int
     both_exceeded_count: int
+
+
+class StoreOrderCounts(BaseModel):
+    placed: int = 0
+    accepted: int = 0
+    packing: int = 0
+    out_for_delivery: int = 0
+    delivered: int = 0
+    waiting_for_stock: int = 0
+    ready_to_submit: int = 0
+    pending_admin_approval: int = 0
+    delayed: int = 0
+    cancelled: int = 0
+
+
+class StoreInfoTile(BaseModel):
+    """One row on the store-info dashboard — condensed store snapshot
+    plus per-status order counts, so a rep's home screen can render a
+    grid of their stores without N follow-up calls."""
+    id: str
+    code: str | None = None
+    name: str
+    district: str | None = None
+    credit_limit: float
+    credit_utilized: float
+    available_credit: float
+    is_over_credit_limit: bool
+    order_counts: StoreOrderCounts
+
+
+class StoreInfoResponse(BaseModel):
+    total_stores: int
+    stores: list[StoreInfoTile]
+
+
+class OverCreditRow(BaseModel):
+    store_id: str
+    store_code: str | None = None
+    store_name: str | None = None
+    district: str | None = None
+    sales_rep_id: str | None = None
+    sales_rep_name: str | None = None
+    credit_limit: float
+    credit_utilized: float
+    available_credit: float
+    excess_amount: float
+
+
+class OverCreditReport(BaseModel):
+    total_stores: int
+    stores: list[OverCreditRow]
 
 
 class StoresCreditSummary(BaseModel):

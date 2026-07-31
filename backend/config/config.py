@@ -65,11 +65,16 @@ class Settings(BaseSettings):
     SALES_ACHIEVEMENTS_COLL: str = "sales_achievements"
     SALES_ACHIEVEMENT_PROGRESS_COLL: str = "sales_achievement_progress"
     NOTIFICATIONS_COLL: str = "notifications"
+    CLIENT_SETTINGS_COLL: str = "client_settings"
+    DELIVERY_ROUTES_COLL: str = "delivery_routes"
     COUNTERS_COLL: str = "_counters"
 
     # Attendance geo-fence radius in metres. Sales rep must be within this
     # distance of the store's saved coordinates to mark attendance.
     ATTENDANCE_GEOFENCE_METERS: float = 100.0
+
+    # Rate limiting — disable in tests, keep on in production.
+    RATE_LIMIT_ENABLED: bool = True
 
     ADMIN_EMAIL: str = ""
     ADMIN_PASSWORD: str = ""

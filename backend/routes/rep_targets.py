@@ -8,6 +8,8 @@ from repository.rep_target_repo import DuplicateRepTargetError, RepTargetReposit
 from repository.user_repo import UserRepository
 from schemas.rep_target import (
     RepTarget,
+    RepTargetBulkCreate,
+    RepTargetBulkCreateResponse,
     RepTargetCreate,
     RepTargetListResponse,
     RepTargetUpdate,
@@ -138,6 +140,92 @@ async def create_rep_target(
         request=request,
     )
     return target
+
+
+@router.post(
+    "/bulk",
+    response_model=RepTargetBulkCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def bulk_create_rep_targets(
+    payload: RepTargetBulkCreate,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Create the same monthly target for every active sales rep in one
+    call. Reps who already have a target for (year, month) are either
+    skipped (default) or the whole batch fails (409) based on
+    `on_conflict`."""
+    reps, _ = UserRepository.list(role="sales_rep", status="active", limit=1000)
+    if not reps:
+        return {
+            "created": 0, "skipped": 0, "total_active_reps": 0,
+            "created_ids": [], "skipped_rep_ids": [],
+        }
+
+    normalized = _normalize_category_targets(payload.category_targets)
+
+    # Detect collisions first so 'fail' mode is atomic — nothing is
+    # written if any rep already has a target.
+    collisions = []
+    for r in reps:
+        existing = RepTargetRepository.by_rep_month(
+            r["_id"], payload.year, payload.month,
+        )
+        if existing:
+            collisions.append(r["_id"])
+
+    if collisions and payload.on_conflict == "fail":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{len(collisions)} rep(s) already have a target for "
+            f"{payload.year}-{payload.month:02d}. Use on_conflict=skip "
+            f"to skip those and create the rest.",
+        )
+
+    created_ids = []
+    skipped_ids = []
+    for r in reps:
+        if r["_id"] in collisions:
+            skipped_ids.append(r["_id"])
+            continue
+        try:
+            t = RepTargetRepository.insert(
+                rep_id=r["_id"],
+                rep_name=r.get("name"),
+                year=payload.year,
+                month=payload.month,
+                overall_target=payload.overall_target,
+                category_targets=normalized,
+                actor=current["user"],
+            )
+            created_ids.append(t["_id"])
+        except DuplicateRepTargetError:
+            # Race: someone else created it between pre-check and insert.
+            skipped_ids.append(r["_id"])
+
+    record(
+        AuditAction.REP_TARGET_BULK_CREATE,
+        ResourceType.REP_TARGET,
+        actor=current["user"],
+        after={
+            "year": payload.year,
+            "month": payload.month,
+            "overall_target": payload.overall_target,
+            "on_conflict": payload.on_conflict,
+            "created": len(created_ids),
+            "skipped": len(skipped_ids),
+            "total_active_reps": len(reps),
+        },
+        request=request,
+    )
+    return {
+        "created": len(created_ids),
+        "skipped": len(skipped_ids),
+        "total_active_reps": len(reps),
+        "created_ids": created_ids,
+        "skipped_rep_ids": skipped_ids,
+    }
 
 
 @router.patch("/{target_id}", response_model=RepTarget)

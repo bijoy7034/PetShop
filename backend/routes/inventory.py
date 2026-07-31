@@ -19,7 +19,15 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 @router.get("", response_model=InventoryListResponse)
 async def list_inventory(
+    ids: str | None = Query(
+        None,
+        description="Comma-separated inventory _ids.",
+    ),
     product_id: str | None = Query(None),
+    product_ids: str | None = Query(
+        None,
+        description="Comma-separated product ids — hydrate inventory rows for a specific set of products.",
+    ),
     category_id: str | None = Query(
         None,
         description="Filter to variants of products in this category.",
@@ -33,9 +41,12 @@ async def list_inventory(
     page_size: int = Query(50, ge=1, le=200),
     _=Depends(require_any_user),
 ):
+    from helpers.query import csv_list
     skip = (page - 1) * page_size
     items, total = InventoryRepository.list(
+        ids=csv_list(ids),
         product_id=product_id,
+        product_ids=csv_list(product_ids),
         category_id=category_id,
         low_stock=low_stock,
         search=search,

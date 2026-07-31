@@ -182,6 +182,7 @@
     <li><a href="#achievements">Achievements</a></li>
     <li><a href="#notifications">Notifications</a></li>
     <li><a href="#admin">Admin (system)</a></li>
+    <li><a href="#developer">Developer &amp; refinements</a></li>
   </ul>
 
   <div class="group">Reference</div>
@@ -1762,6 +1763,95 @@ page, page_size (page_size ≤ 200)</code></pre>
 <div class="endpoint">
   <h4><span class="method GET">GET</span> /api/admin/audit-logs/resource-types <span class="role">admin</span></h4>
   <p>Distinct <code>resource_type</code> values.</p>
+</div>
+
+<h2 id="developer">Developer console &amp; refinements</h2>
+<p>Endpoints and behaviours added in the Aug-2026 refinement batch. Groups the newer surface — client settings, custom notifications, store info tiles, over-credit report, bulk rep-targets, delivery routing, and array-filter support on list endpoints.</p>
+
+<div class="callout">
+  <strong>New role: <code>developer</code>.</strong> Access is intentionally narrow — reads on top-level lists (via <code>require_any_user</code>) plus write access to <code>/settings</code> and <code>/notifications/send</code>. Admins fall through to every developer route as break-glass.
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/settings <span class="role">any user</span></h4>
+  <p>Read the singleton client-settings doc. Every authenticated user reads it — the frontend uses this to render branding, currency, theme colors on every screen.</p>
+  <pre><code>{
+  "_id": "app_settings",
+  "company_name": "Merxio", "logo_url": null, "gst_number": null,
+  "phone": null, "email": null, "website": null, "support_email": null,
+  "theme_colors": { "primary": "#050505", &hellip; },
+  "currency": "INR", "currency_symbol": "₹",
+  "extras": {},
+  "updated_at": "&hellip;", "updated_by_name": "Cheena"
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method PATCH">PATCH</span> /api/settings <span class="role">developer / admin</span></h4>
+  <p>Update client settings. Only fields set in the payload are updated; unset fields stay at their prior value.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/notifications/send <span class="role">any user</span></h4>
+  <p>Human-authored notification. Recipients are the union of <code>recipient_user_ids</code> and every active user in <code>recipient_roles</code> (including <code>developer</code>). Sender info is stamped into each row's meta. 400 if both lists are empty.</p>
+  <pre><code>{ "title": "Please read", "message": "Ops update.",
+  "recipient_user_ids": ["u1"], "recipient_roles": ["office_staff"], "link": null }</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/info-dashboard <span class="role">any user (rep-scoped)</span></h4>
+  <p>Grid of the caller's stores with credit tile + per-status order counts. One aggregation over the orders collection groups by (store_id, status) so hundreds of stores hydrate in one round-trip. Sales rep is force-scoped to their own book.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/over-credit-report <span class="role">office/admin</span></h4>
+  <p>Every approved store where <code>credit_used &gt; credit_limit</code>. Includes <code>excess_amount</code> per row, sorted worst-first. Complements <code>/credit-violations-report</code> which also includes overdue-only violations.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/rep-targets/bulk <span class="role">office/admin</span></h4>
+  <p>Create the same monthly target for every active sales rep in one call.</p>
+  <p class="label">Body</p>
+  <pre><code>{ "year": 2026, "month": 8,
+  "overall_target": 500000, "category_targets": [ &hellip; ],
+  "on_conflict": "skip"          // or "fail"
+}</code></pre>
+  <p><code>on_conflict=skip</code> keeps existing targets untouched and returns per-rep create/skip counts. <code>on_conflict=fail</code> refuses the whole batch with 409 if any collision exists.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/delivery/optimize <span class="role">office/admin</span></h4>
+  <p>Greedy nearest-neighbor TSP heuristic over the provided stops from <code>start</code>. Persists the generated route with driver info + timestamps and returns ordered stops with a 1-indexed <code>sequence</code>, total distance (km), and estimated duration (minutes at ~25 km/h). Polyline hook is present but not yet wired to OSRM.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "start": { "lat": 12.9716, "lng": 77.5946 },
+  "stops": [
+    { "store_id": "S1", "order_id": "O1", "lat": 12.99, "lng": 77.63 },
+    { "store_id": "S2", "order_id": "O2", "lat": 12.95, "lng": 77.58 }
+  ],
+  "driver_id": "drv-1", "driver_name": "Ravi"
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/delivery/dispatch <span class="role">office/admin</span></h4>
+  <p>Move a batch of packed orders to <code>out_for_delivery</code> in one call. Each order is validated independently — orders not in <code>packing</code> are skipped with a reason; the rest still dispatch. Each dispatched order fires its normal <code>order.dispatched</code> notification to the rep.</p>
+  <pre><code>{ "order_ids": ["O1", "O2", "O3"] }</code></pre>
+</div>
+
+<div class="callout">
+  <strong>Array filters (list endpoints).</strong>
+  <ul>
+    <li><code>GET /api/products?ids=A,B,C</code> — hydrate a specific set. Also <code>category_ids=</code>, <code>subcategory_ids=</code>.</li>
+    <li><code>GET /api/orders?status=accepted,placed&amp;ids=O1,O2</code> — comma-separated statuses. <code>overdue_only=true</code> or <code>payment_status=overdue</code> = unpaid + past-due-date.</li>
+    <li><code>GET /api/stores?ids=S1,S2&amp;status=approved,pending</code></li>
+    <li><code>GET /api/inventory?product_ids=P1,P2&amp;ids=I1,I2</code></li>
+  </ul>
+  Combine freely with existing <code>search</code>, pagination, and other filters.
+</div>
+
+<div class="callout">
+  <strong>Rate limiting.</strong> An in-memory token-bucket middleware caps per-identity requests: auth endpoints get 10/min (change-password 5/min), <code>/notifications/send</code> and <code>/announce</code> get 30/min, everything else 300/min. Keyed by session cookie when authenticated, else client IP. Disable in tests by setting <code>RATE_LIMIT_ENABLED=false</code>. Not distributed — if you scale horizontally, swap in a Redis-backed limiter.
 </div>
 
 <!-- ========== REFERENCE ========== -->

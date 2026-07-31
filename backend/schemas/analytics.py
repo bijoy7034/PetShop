@@ -122,11 +122,32 @@ class DistrictAnalytics(BaseModel):
     items: list[DistrictAnalyticsItem]
 
 
+class RecommendationScore(BaseModel):
+    """Ranking metadata that sits next to a full Product in the
+    recommended-products response. `variant_id` names the specific
+    variant that drove the recommendation (a product may have several
+    variants; this is the one the store historically bought)."""
+    variant_id: str | None = None
+    variant_label: str | None = None
+    qty: int = 0
+    revenue: float = 0.0
+    orders: int = 0
+    last_ordered_at: datetime | None = None
+    source: str  # "store_history" | "district_fallback" | "global_fallback"
+    rank: int
+
+
+class RecommendedProduct(BaseModel):
+    """A recommended product = the full Product doc + ranking metadata."""
+    product: dict           # full Product shape (mirrors schemas.product.Product)
+    recommendation: RecommendationScore
+
+
 class RecommendedProductsResponse(BaseModel):
     store_id: str
     store_name: str | None = None
-    source: str  # "store_history" | "global_fallback"
-    items: list[TopProduct]
+    source: str  # "store_history" | "district_fallback" | "global_fallback"
+    recommended_products: list[RecommendedProduct]
 
 
 class DistrictTotals(BaseModel):

@@ -9,6 +9,8 @@ from repository.notification_repo import NotificationRepository
 from schemas.notification import (
     AnnouncementCreate,
     AnnouncementResult,
+    CustomNotificationResult,
+    CustomNotificationSend,
     Notification,
     NotificationListResponse,
     UnreadCountResponse,
@@ -92,3 +94,83 @@ async def mark_all_read(
         request=request,
     )
     return {"marked_read": n}
+
+
+@router.post("/send", response_model=CustomNotificationResult)
+async def send_notification(
+    payload: CustomNotificationSend,
+    request: Request,
+    current=Depends(require_any_user),
+):
+    """Human-authored notification with explicit targeting. Recipients
+    are the union of `recipient_user_ids` and every active user in
+    `recipient_roles` (roles include developer). Sender info is stamped
+    into the meta of each row so the recipient can see who sent it.
+    Requires at least one recipient (400 otherwise)."""
+    from fastapi import HTTPException, status as _s
+    user = current["user"]
+    if not payload.recipient_user_ids and not payload.recipient_roles:
+        raise HTTPException(
+            _s.HTTP_400_BAD_REQUEST,
+            "At least one recipient_user_ids or recipient_roles must be provided.",
+        )
+    delivered = notification_service.send_custom(
+        sender=user,
+        title=payload.title,
+        message=payload.message,
+        link=payload.link,
+        recipient_user_ids=payload.recipient_user_ids,
+        recipient_roles=payload.recipient_roles,
+    )
+    record(
+        AuditAction.NOTIFICATION_SEND,
+        ResourceType.NOTIFICATION,
+        actor=user,
+        after={
+            "title": payload.title,
+            "recipient_user_ids": payload.recipient_user_ids,
+            "recipient_roles": payload.recipient_roles,
+            "delivered_to": delivered,
+        },
+        request=request,
+    )
+    return CustomNotificationResult(
+        delivered_to=delivered,
+        sender_id=user["_id"],
+        sender_name=user.get("name"),
+    )
+
+
+@router.post("/announce", response_model=AnnouncementResult)
+async def announce(
+    payload: AnnouncementCreate,
+    request: Request,
+    current=Depends(require_admin),
+):
+    """Admin broadcast to a role-scoped audience. `kind=maintenance`
+    emits `general.system_maintenance`; anything else emits
+    `general.announcement`."""
+    ntype = (
+        NotificationType.SYSTEM_MAINTENANCE
+        if payload.kind == "maintenance"
+        else NotificationType.ANNOUNCEMENT
+    )
+    delivered = notification_service.broadcast(
+        type=ntype,
+        title=payload.title,
+        body=payload.body,
+        link=payload.link,
+        audience=payload.audience,
+        meta={"kind": payload.kind, "sent_by_id": current["user"]["_id"]},
+    )
+    record(
+        AuditAction.NOTIFICATION_READ_ALL,
+        ResourceType.NOTIFICATION,
+        actor=current["user"],
+        after={
+            "kind": payload.kind, "audience": payload.audience,
+            "title": payload.title, "delivered_to": delivered,
+        },
+        request=request,
+    )
+    return AnnouncementResult(delivered_to=delivered)

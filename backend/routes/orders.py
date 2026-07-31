@@ -52,13 +52,24 @@ def _visible(user, order):
 
 @router.get("", response_model=OrderListResponse)
 async def list_orders(
+    ids: str | None = Query(
+        None,
+        description="Comma-separated order _ids to hydrate a specific set.",
+    ),
     store_id: str | None = Query(None),
     sales_rep_id: str | None = Query(
         None,
         description="Office/admin only; sales_rep is force-scoped to their own orders.",
     ),
-    status_filter: str | None = Query(None, alias="status"),
-    payment_status: str | None = Query(None),
+    status_filter: str | None = Query(
+        None, alias="status",
+        description="Single status OR comma-separated list, e.g. 'accepted,placed'.",
+    ),
+    payment_status: str | None = Query(
+        None,
+        description="Single value or CSV. Special value 'overdue' = unpaid + past-due-date.",
+    ),
+    overdue_only: bool = Query(False),
     over_credit_approved: bool | None = Query(
         None,
         description="Filter for orders approved despite exceeding the store's "
@@ -72,16 +83,24 @@ async def list_orders(
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
 ):
+    from helpers.query import csv_list
     user = current["user"]
-    # Sales rep force-scoped to themselves; office/admin can pass any rep.
     effective_rep = sales_rep_id if _is_office(user) else user["_id"]
     skip = (page - 1) * page_size
+
+    id_list = csv_list(ids)
+    status_list = csv_list(status_filter)
+    is_overdue = (payment_status == "overdue") or overdue_only
+    payment_list = None if is_overdue else csv_list(payment_status)
+
     items, total = OrderRepository.list(
         sales_rep_id=effective_rep,
         store_id=store_id,
-        status=status_filter,
-        payment_status=payment_status,
+        ids=id_list,
+        statuses=status_list,
+        payment_statuses=payment_list,
         over_credit_approved=over_credit_approved,
+        overdue_only=is_overdue,
         search=search,
         skip=skip,
         limit=page_size,
@@ -117,7 +136,8 @@ async def get_order(order_id: str, current=Depends(require_any_user)):
 
 
 def _place_in_stock_order(*, store, user, lines, total, notes,
-                          expected_delivery_date, sibling_id, request):
+                          expected_delivery_date, sibling_id, request,
+                          credit_period_days=None):
     """Extracted from the old single-order path so the split flow can
     call it after peeling off the backordered lines. Handles credit
     check, inventory reservation, DB insert, audit, notification."""
@@ -144,6 +164,7 @@ def _place_in_stock_order(*, store, user, lines, total, notes,
             notes=notes, status=initial_status,
             expected_delivery_date=expected_delivery_date,
             sibling_order_id=sibling_id,
+            credit_period_days_override=credit_period_days,
         )
     except Exception:
         if not over_credit:
@@ -172,7 +193,8 @@ def _place_in_stock_order(*, store, user, lines, total, notes,
 
 
 def _place_waiting_order(*, store, user, lines, total, notes,
-                        expected_delivery_date, sibling_id, request):
+                        expected_delivery_date, sibling_id, request,
+                        credit_period_days=None):
     """Waiting orders skip inventory reservation and credit hold — the
     stock isn't there yet, and credit will be checked when the order is
     submitted after auto-promotion."""
@@ -181,6 +203,7 @@ def _place_waiting_order(*, store, user, lines, total, notes,
         notes=notes, status=OrderStatus.WAITING_FOR_STOCK.value,
         expected_delivery_date=expected_delivery_date,
         sibling_order_id=sibling_id,
+        credit_period_days_override=credit_period_days,
     )
     record(
         AuditAction.ORDER_WAITING_FOR_STOCK,
@@ -242,6 +265,7 @@ async def place_order(
             notes=payload.notes,
             expected_delivery_date=payload.expected_delivery_date,
             sibling_id=None, request=request,
+            credit_period_days=payload.credit_period_days,
         )
         return PlaceOrderResponse(primary_order=order, waiting_order=None, split=False)
 
@@ -252,6 +276,7 @@ async def place_order(
             notes=payload.notes,
             expected_delivery_date=payload.expected_delivery_date,
             sibling_id=None, request=request,
+            credit_period_days=payload.credit_period_days,
         )
         return PlaceOrderResponse(primary_order=order, waiting_order=None, split=False)
 
@@ -267,6 +292,7 @@ async def place_order(
         notes=payload.notes,
         expected_delivery_date=payload.expected_delivery_date,
         sibling_id=primary["_id"], request=request,
+        credit_period_days=payload.credit_period_days,
     )
     # Cross-link the primary now that we have the waiting id.
     primary = OrderRepository.set_sibling(primary["_id"], waiting["_id"])

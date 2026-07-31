@@ -44,3 +44,25 @@ class RepTargetListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class RepTargetBulkCreate(BaseModel):
+    """Create the same monthly target for every active sales rep.
+    `on_conflict` controls behaviour when a (rep, year, month) row
+    already exists:
+      - 'skip'  → leave the existing row alone; count it under `skipped`
+      - 'fail'  → 409 with a list of colliding reps; nothing created
+    """
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    overall_target: float = Field(ge=0)
+    category_targets: list[CategoryTarget] = []
+    on_conflict: str = Field(default="skip", pattern="^(skip|fail)$")
+
+
+class RepTargetBulkCreateResponse(BaseModel):
+    created: int
+    skipped: int
+    total_active_reps: int
+    created_ids: list[str] = []
+    skipped_rep_ids: list[str] = []
