@@ -168,6 +168,36 @@ class DistrictAnalyticsDetail(BaseModel):
     by_rep: list[DistrictRep]
 
 
+class LeaderboardRankEntry(BaseModel):
+    rank: int
+    sales_rep_id: str
+    sales_rep_name: str | None = None
+    total_sales_volume: float
+    orders_count: int
+    target_achievement_pct: float
+
+
+class RankedLeaderboard(BaseModel):
+    """Month-scoped rep ranking. Sorted by total_sales_volume desc.
+    target_achievement_pct is 0 for reps without a RepTarget doc that month."""
+    period: str
+    rankings: list[LeaderboardRankEntry]
+
+
+class DistrictSummaryEntry(BaseModel):
+    district_name: str
+    stores_count: int
+    total_monthly_revenue: float
+    total_credit_exposure: float
+
+
+class DistrictsSummary(BaseModel):
+    """District-wise counts + monthly revenue + credit exposure.
+    stores_count is approved stores only."""
+    total_districts: int
+    districts: list[DistrictSummaryEntry]
+
+
 class UserGreeting(BaseModel):
     display_name: str | None = None
     email: str | None = None

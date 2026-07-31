@@ -44,7 +44,14 @@ def _visible(user, store):
 @router.get("", response_model=StoreListResponse)
 async def list_stores(
     status_filter: str | None = Query(None, alias="status"),
-    search: str | None = Query(None),
+    credit_change_status: str | None = Query(
+        None,
+        description="Filter by pending credit-limit changes: 'pending' | 'none' | 'approved' | 'rejected'.",
+    ),
+    search: str | None = Query(
+        None,
+        description="Case-insensitive substring across name / location / gst_number / store code.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
@@ -54,6 +61,7 @@ async def list_stores(
     items, total = StoreRepository.list(
         sales_rep_id=sales_rep_id,
         status=status_filter,
+        credit_change_status=credit_change_status,
         search=search,
         skip=skip,
         limit=page_size,

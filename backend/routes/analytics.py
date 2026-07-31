@@ -12,8 +12,9 @@ from schemas.analytics import (
     AdminDashboard,
     DistrictAnalytics,
     DistrictAnalyticsDetail,
-    Leaderboard,
+    DistrictsSummary,
     MonthlyRepAnalytics,
+    RankedLeaderboard,
     RepAnalytics,
     RepDashboard,
     StaffDashboard,
@@ -202,53 +203,70 @@ async def rep_target_achievement(
     return analytics.target_achievement(rep_id, year, month)
 
 
-@router.get("/leaderboard", response_model=Leaderboard)
+@router.get("/leaderboard", response_model=RankedLeaderboard)
 async def leaderboard_endpoint(
-    sort: str = Query(
-        "revenue",
-        description="revenue | orders | visits | conversion_rate | "
-                    "avg_order_value | target_achievement_pct | "
-                    "monthly_revenue | monthly_orders",
-    ),
-    range_flag: str | None = Query(
-        None, alias="range",
-        description="current_week | current_month | custom (with from/to)",
-    ),
-    from_: datetime | None = Query(None, alias="from"),
-    to: datetime | None = Query(None),
     year: int | None = Query(None, ge=2000, le=2100),
     month: int | None = Query(None, ge=1, le=12),
-    limit: int = Query(100, ge=1, le=500),
-    current=Depends(require_office),
+    _=Depends(require_office),
 ):
-    """Cross-rep ranking. Sales reps don't see the leaderboard directly —
-    office/admin only. Some sort keys (target_achievement_pct,
-    monthly_revenue, monthly_orders) require year+month to compute
-    per-rep target percentages."""
-    dt_from, dt_to = _range_from_flag(range_flag, from_, to)
-    entries = analytics.leaderboard(from_dt=dt_from, to_dt=dt_to, sort=sort, limit=limit)
+    """Ranked rep leaderboard for a calendar month. Sorted by
+    total_sales_volume descending; ranks are 1-indexed. Each entry
+    includes orders_count and target_achievement_pct (0 when the rep
+    has no RepTarget for that month). Office/admin only — sales rep
+    doesn't get the cross-rep view.
 
-    # target_achievement_pct requires knowing which month to compare
-    # against a RepTarget. If year+month were provided, resolve it now.
-    if sort == "target_achievement_pct" and year and month:
-        from repository.rep_target_repo import RepTargetRepository
-        for e in entries:
-            t = RepTargetRepository.by_rep_month(e["rep_id"], year, month)
-            target = float((t or {}).get("overall_target") or 0)
-            e["target"] = target
-            e["target_achievement_pct"] = (
-                round(e["revenue"] / target * 100, 2) if target else None
-            )
-        entries.sort(
-            key=lambda e: (e["target_achievement_pct"] or -1),
-            reverse=True,
-        )
+    `year` + `month` default to the current calendar month.
+    """
+    now = datetime.now(timezone.utc)
+    y = year or now.year
+    m = month or now.month
+    start = datetime(y, m, 1, tzinfo=timezone.utc)
+    end = (datetime(y + (m // 12), (m % 12) + 1, 1, tzinfo=timezone.utc)
+           if m < 12 else datetime(y + 1, 1, 1, tzinfo=timezone.utc))
+    end -= timedelta(microseconds=1)
 
-    return {
-        "range": {"from": dt_from, "to": dt_to},
-        "sort": sort,
-        "items": entries,
-    }
+    # Reuse the existing service — it already gives one row per active rep
+    # with revenue + orders + visits. Ignore visits here.
+    entries = analytics.leaderboard(from_dt=start, to_dt=end, sort="revenue", limit=500)
+
+    from repository.rep_target_repo import RepTargetRepository
+    rankings = []
+    for e in entries:
+        target_doc = RepTargetRepository.by_rep_month(e["rep_id"], y, m)
+        target = float((target_doc or {}).get("overall_target") or 0)
+        pct = round(e["revenue"] / target * 100, 2) if target else 0.0
+        rankings.append({
+            "rank": 0,  # assigned after final sort
+            "sales_rep_id": e["rep_id"],
+            "sales_rep_name": e.get("rep_name"),
+            "total_sales_volume": float(e.get("revenue") or 0),
+            "orders_count": int(e.get("orders") or 0),
+            "target_achievement_pct": pct,
+        })
+    rankings.sort(key=lambda r: r["total_sales_volume"], reverse=True)
+    for i, r in enumerate(rankings, start=1):
+        r["rank"] = i
+
+    return {"period": f"{y:04d}-{m:02d}", "rankings": rankings}
+
+
+@router.get("/districts-summary", response_model=DistrictsSummary)
+async def districts_summary(current=Depends(require_office)):
+    """District-wise breakdown for the current month: approved-store
+    count, revenue booked this month, and total credit exposure.
+    Sorted by monthly revenue desc. Office/admin only."""
+    now = datetime.now(timezone.utc)
+    m_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    m_end = (
+        datetime(
+            now.year + (now.month // 12),
+            (now.month % 12) + 1, 1, tzinfo=timezone.utc,
+        ) if now.month < 12 else datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    )
+    m_end -= timedelta(microseconds=1)
+    return StoreRepository.districts_summary(
+        month_start=m_start, month_end=m_end,
+    )
 
 
 @router.get("/districts", response_model=DistrictAnalytics)

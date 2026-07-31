@@ -347,6 +347,62 @@ class StoreRepository:
         }
 
     @staticmethod
+    def districts_summary(*, month_start, month_end):
+        """District-wise breakdown: approved stores + monthly revenue
+        + credit exposure. Revenue is Σ(order.total) over counted-status
+        orders whose created_at falls in the [month_start, month_end]
+        window, grouped by store_district. Credit exposure is
+        Σ(credit_used) across approved stores in that district.
+
+        Includes districts that have approved stores even if they had
+        no orders this month (revenue = 0)."""
+        from repository.order_repo import OrderRepository
+
+        # Approved-store counts + credit_used per district.
+        store_pipeline = [
+            {"$match": {"status": "approved", "district": {"$nin": [None, ""]}}},
+            {"$group": {
+                "_id": "$district",
+                "stores_count": {"$sum": 1},
+                "credit_exposure": {"$sum": {"$ifNull": ["$credit_used", 0]}},
+            }},
+        ]
+        store_rows = list(StoreRepository._coll().aggregate(store_pipeline))
+
+        # Monthly revenue per district (counted-status orders only).
+        counted = ("accepted", "packing", "out_for_delivery", "delivered")
+        revenue_pipeline = [
+            {"$match": {
+                "status": {"$in": list(counted)},
+                "created_at": {"$gte": month_start, "$lte": month_end},
+                "store_district": {"$nin": [None, ""]},
+            }},
+            {"$group": {
+                "_id": "$store_district",
+                "revenue": {"$sum": "$total"},
+            }},
+        ]
+        revenue_rows = {
+            r["_id"]: float(r["revenue"] or 0)
+            for r in OrderRepository._coll().aggregate(revenue_pipeline)
+        }
+
+        districts = []
+        for r in store_rows:
+            d = r["_id"]
+            districts.append({
+                "district_name": d,
+                "stores_count": int(r["stores_count"] or 0),
+                "total_monthly_revenue": round(revenue_rows.get(d, 0.0), 2),
+                "total_credit_exposure": round(float(r["credit_exposure"] or 0), 2),
+            })
+        districts.sort(key=lambda x: x["total_monthly_revenue"], reverse=True)
+        return {
+            "total_districts": len(districts),
+            "districts": districts,
+        }
+
+    @staticmethod
     def pending_credit_change_count():
         return StoreRepository._coll().count_documents(
             {"credit_change_status": CreditChangeStatus.PENDING.value}
@@ -376,17 +432,21 @@ class StoreRepository:
         return [v for v in vals if v]
 
     @staticmethod
-    def list(sales_rep_id=None, status=None, search=None, skip=0, limit=50):
+    def list(sales_rep_id=None, status=None, credit_change_status=None,
+             search=None, skip=0, limit=50):
         q = {}
         if sales_rep_id:
             q["sales_rep_id"] = sales_rep_id
         if status:
             q["status"] = status
+        if credit_change_status:
+            q["credit_change_status"] = credit_change_status
         if search:
             q["$or"] = [
                 {"name": {"$regex": search, "$options": "i"}},
                 {"location": {"$regex": search, "$options": "i"}},
                 {"gst_number": {"$regex": search, "$options": "i"}},
+                {"code": {"$regex": search, "$options": "i"}},
             ]
         cur = (
             StoreRepository._coll()

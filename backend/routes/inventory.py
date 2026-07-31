@@ -7,6 +7,7 @@ from schemas.analytics import LowStockReport
 from schemas.inventory import (
     Inventory,
     InventoryListResponse,
+    InventorySummary,
     InventoryUpdate,
     StockAdjust,
 )
@@ -19,18 +20,40 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 @router.get("", response_model=InventoryListResponse)
 async def list_inventory(
     product_id: str | None = Query(None),
+    category_id: str | None = Query(
+        None,
+        description="Filter to variants of products in this category.",
+    ),
     low_stock: bool = Query(False),
+    search: str | None = Query(
+        None,
+        description="Case-insensitive substring across product_name / variant_label.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     _=Depends(require_any_user),
 ):
     skip = (page - 1) * page_size
     items, total = InventoryRepository.list(
-        product_id=product_id, low_stock=low_stock, skip=skip, limit=page_size
+        product_id=product_id,
+        category_id=category_id,
+        low_stock=low_stock,
+        search=search,
+        skip=skip,
+        limit=page_size,
     )
     return InventoryListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
+
+
+@router.get("/summary", response_model=InventorySummary)
+async def inventory_summary(_=Depends(require_any_user)):
+    """Portfolio inventory snapshot: variant count, total valuation
+    (Σ on_hand × unit_price where unit_price prefers discount_price),
+    and three health-state buckets. optimal_stock_count = total −
+    (out_of_stock + low_stock)."""
+    return InventoryRepository.summary()
 
 
 @router.get("/low-stock-report", response_model=LowStockReport)

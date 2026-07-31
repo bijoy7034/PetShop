@@ -104,6 +104,103 @@ class OrderRepository:
         ))
 
     @staticmethod
+    def payment_summary(*, year=None, month=None, sales_rep_id=None):
+        """Aggregate payment collections across the order collection.
+        Uses payment_history events for month/method breakdown and
+        `today_collected_amount`, while `pending_collection_amount` is
+        the sum of outstanding across every counted-status order (not
+        just those with a due date).
+
+        `year`+`month` default to the current calendar month.
+        `sales_rep_id` scopes both collections and pending amount."""
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        y = year or now.year
+        m = month or now.month
+        m_start = datetime(y, m, 1, tzinfo=timezone.utc)
+        m_end = (datetime(y + (m // 12), (m % 12) + 1, 1, tzinfo=timezone.utc)
+                 if m < 12 else datetime(y + 1, 1, 1, tzinfo=timezone.utc))
+        m_end -= timedelta(microseconds=1)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        base_match = {}
+        if sales_rep_id:
+            base_match["sales_rep_id"] = sales_rep_id
+
+        pipeline = [
+            {"$match": base_match},
+            {"$unwind": "$payment_history"},
+            {"$match": {
+                "payment_history.at": {"$gte": m_start, "$lte": m_end},
+            }},
+            {"$facet": {
+                "month_total": [
+                    {"$group": {
+                        "_id": None,
+                        "amount": {"$sum": "$payment_history.amount"},
+                    }},
+                ],
+                "today": [
+                    {"$match": {
+                        "payment_history.at": {"$gte": today_start},
+                    }},
+                    {"$group": {
+                        "_id": None,
+                        "amount": {"$sum": "$payment_history.amount"},
+                        "count": {"$sum": 1},
+                    }},
+                ],
+                "by_method": [
+                    {"$group": {
+                        "_id": {"$toLower": {"$ifNull": [
+                            "$payment_history.method", "unspecified",
+                        ]}},
+                        "amount": {"$sum": "$payment_history.amount"},
+                    }},
+                ],
+            }},
+        ]
+        res = list(OrderRepository._coll().aggregate(pipeline))[0]
+
+        month_total = float(
+            res["month_total"][0]["amount"] if res["month_total"] else 0
+        )
+        today_amt = float(res["today"][0]["amount"] if res["today"] else 0)
+        today_count = int(res["today"][0]["count"] if res["today"] else 0)
+        by_method = {
+            (r["_id"] or "unspecified"): round(float(r["amount"] or 0), 2)
+            for r in res["by_method"]
+        }
+
+        # Outstanding across counted-status orders (a delivered order can
+        # still be pending payment — that's the money we're chasing).
+        counted = ("accepted", "packing", "out_for_delivery", "delivered")
+        pend_match = {"status": {"$in": list(counted)}, **base_match}
+        pend_pipeline = [
+            {"$match": pend_match},
+            {"$project": {
+                "outstanding": {"$max": [
+                    0, {"$subtract": [
+                        {"$ifNull": ["$total", 0]},
+                        {"$ifNull": ["$amount_paid", 0]},
+                    ]}
+                ]},
+            }},
+            {"$group": {"_id": None, "sum": {"$sum": "$outstanding"}}},
+        ]
+        pend_rows = list(OrderRepository._coll().aggregate(pend_pipeline))
+        pending = float(pend_rows[0]["sum"]) if pend_rows else 0.0
+
+        return {
+            "period": f"{y:04d}-{m:02d}",
+            "total_collected_this_month": round(month_total, 2),
+            "today_collected_amount": round(today_amt, 2),
+            "pending_collection_amount": round(pending, 2),
+            "collections_count_today": today_count,
+            "payment_methods_breakdown": by_method,
+        }
+
+    @staticmethod
     def stats(*, sales_rep_id=None, store_id=None):
         """Dashboard aggregation: total orders, total volume, counts by
         status and by payment_status. Every status/payment_status key
@@ -191,7 +288,7 @@ class OrderRepository:
 
     @staticmethod
     def list(sales_rep_id=None, store_id=None, status=None, payment_status=None,
-             over_credit_approved=None, skip=0, limit=50):
+             over_credit_approved=None, search=None, skip=0, limit=50):
         q = {}
         if sales_rep_id:
             q["sales_rep_id"] = sales_rep_id
@@ -205,6 +302,13 @@ class OrderRepository:
             q["over_credit_approved"] = True
         elif over_credit_approved is False:
             q["over_credit_approved"] = {"$ne": True}
+        if search:
+            q["$or"] = [
+                {"code": {"$regex": search, "$options": "i"}},
+                {"store_name": {"$regex": search, "$options": "i"}},
+                {"store_code": {"$regex": search, "$options": "i"}},
+                {"sales_rep_name": {"$regex": search, "$options": "i"}},
+            ]
         cur = (
             OrderRepository._coll()
             .find(q)

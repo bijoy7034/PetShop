@@ -363,6 +363,94 @@ class InventoryRepository:
         return items
 
     @staticmethod
+    def summary():
+        """Portfolio inventory view — variant counts + valuation +
+        stock-health buckets. Valuation is Σ(quantity_on_hand × unit_price)
+        where unit_price is the variant's discount_price if set, else
+        its list price. Aggregation joins inventory ↔ products.variants
+        in a single pipeline."""
+        from config.config import settings as _s
+        pipeline = [
+            # Look up the parent product for each inventory row.
+            {"$lookup": {
+                "from": _s.PRODUCTS_COLL,
+                "let": {"vid_str": "$variant_id", "pid_str": "$product_id"},
+                "pipeline": [
+                    {"$match": {"$expr": {"$eq": [
+                        {"$toString": "$_id"}, "$$pid_str",
+                    ]}}},
+                    {"$project": {
+                        "variants": {"$filter": {
+                            "input": "$variants",
+                            "as": "v",
+                            "cond": {"$eq": [
+                                {"$toString": "$$v._id"}, "$$vid_str",
+                            ]},
+                        }},
+                    }},
+                ],
+                "as": "prod",
+            }},
+            {"$addFields": {
+                "variant": {"$arrayElemAt": [
+                    {"$arrayElemAt": ["$prod.variants", 0]}, 0,
+                ]},
+                "available": {"$max": [
+                    0, {"$subtract": [
+                        {"$ifNull": ["$quantity_on_hand", 0]},
+                        {"$ifNull": ["$reserved_quantity", 0]},
+                    ]}
+                ]},
+            }},
+            {"$addFields": {
+                "unit_price": {"$ifNull": [
+                    "$variant.discount_price",
+                    {"$ifNull": ["$variant.price", 0]},
+                ]},
+            }},
+            {"$group": {
+                "_id": None,
+                "total_variants_count": {"$sum": 1},
+                "total_inventory_valuation": {
+                    "$sum": {"$multiply": [
+                        {"$ifNull": ["$quantity_on_hand", 0]},
+                        "$unit_price",
+                    ]}
+                },
+                "out_of_stock_count": {"$sum": {"$cond": [
+                    {"$lte": ["$available", 0]}, 1, 0,
+                ]}},
+                "low_stock_count": {"$sum": {"$cond": [
+                    {"$and": [
+                        {"$gt": ["$available", 0]},
+                        {"$gt": ["$reorder_level", 0]},
+                        {"$lte": ["$available", "$reorder_level"]},
+                    ]}, 1, 0,
+                ]}},
+            }},
+        ]
+        rows = list(InventoryRepository._coll().aggregate(pipeline))
+        if not rows:
+            return {
+                "total_variants_count": 0,
+                "total_inventory_valuation": 0.0,
+                "out_of_stock_count": 0,
+                "low_stock_count": 0,
+                "optimal_stock_count": 0,
+            }
+        r = rows[0]
+        total = int(r["total_variants_count"] or 0)
+        oos = int(r["out_of_stock_count"] or 0)
+        low = int(r["low_stock_count"] or 0)
+        return {
+            "total_variants_count": total,
+            "total_inventory_valuation": round(float(r["total_inventory_valuation"] or 0), 2),
+            "out_of_stock_count": oos,
+            "low_stock_count": low,
+            "optimal_stock_count": max(0, total - oos - low),
+        }
+
+    @staticmethod
     def low_stock_count():
         """Cheap counter for the admin/staff dashboard tiles."""
         return InventoryRepository._coll().count_documents({
@@ -376,7 +464,8 @@ class InventoryRepository:
         })
 
     @staticmethod
-    def list(product_id=None, low_stock=None, skip=0, limit=50):
+    def list(product_id=None, low_stock=None, category_id=None,
+             search=None, skip=0, limit=50):
         q = {}
         if product_id:
             q["product_id"] = product_id
@@ -392,6 +481,30 @@ class InventoryRepository:
                     },
                 ]
             }
+        if search:
+            q["$or"] = [
+                {"product_name": {"$regex": search, "$options": "i"}},
+                {"variant_label": {"$regex": search, "$options": "i"}},
+            ]
+        # category_id requires a filter against the products collection.
+        # Resolve to a list of product_ids first, then narrow the inventory
+        # query. This keeps the hot path (unfiltered / product_id filter)
+        # a single indexed find.
+        if category_id:
+            from config.config import settings as _s
+            product_ids = [
+                str(p["_id"]) for p in get_db()[_s.PRODUCTS_COLL].find(
+                    {"category_id": category_id}, {"_id": 1},
+                )
+            ]
+            if not product_ids:
+                return [], 0
+            # Compose with any existing product_id filter.
+            if "product_id" in q:
+                if q["product_id"] not in product_ids:
+                    return [], 0
+            else:
+                q["product_id"] = {"$in": product_ids}
         cur = (
             InventoryRepository._coll()
             .find(q)

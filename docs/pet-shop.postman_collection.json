@@ -2285,6 +2285,63 @@
                   ]
                 }
               }
+            },
+            {
+              "name": "Inventory summary (variant counts + valuation)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/inventory/summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory", "summary"]
+                }
+              }
+            },
+            {
+              "name": "Payments summary (monthly collections + methods)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/payments/summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "payments", "summary"],
+                  "query": [
+                    { "key": "year", "value": "2026", "disabled": true },
+                    { "key": "month", "value": "7", "disabled": true },
+                    { "key": "sales_rep_id", "value": "{{rep_user_id}}", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Ranked leaderboard (period + rankings)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/leaderboard",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "leaderboard"],
+                  "query": [
+                    { "key": "year", "value": "2026", "disabled": true },
+                    { "key": "month", "value": "7", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Districts summary (stores + revenue + credit exposure)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/districts-summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "districts-summary"]
+                }
+              }
             }
           ]
         },

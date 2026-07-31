@@ -1225,6 +1225,74 @@ month   (1-12; defaults to current)</code></pre>
 end_date    (ISO datetime, optional)</code></pre>
 </div>
 
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/inventory/summary <span class="role">any user</span></h4>
+  <p>Portfolio inventory snapshot. Valuation = Σ(quantity_on_hand × unit_price) where unit_price prefers <code>discount_price</code>. Three mutually-exclusive health buckets: <code>out_of_stock</code> (available ≤ 0), <code>low_stock</code> (0 &lt; available ≤ reorder_level with reorder_level &gt; 0), <code>optimal_stock</code> (everything else). Joins inventory ↔ products in one Mongo pipeline.</p>
+  <pre><code>{
+  "total_variants_count": 450,
+  "total_inventory_valuation": 12500000.0,
+  "out_of_stock_count": 8,
+  "low_stock_count": 15,
+  "optimal_stock_count": 427
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/payments/summary <span class="role">any user</span></h4>
+  <p>Payment collections rollup for a calendar month. Aggregates over <code>order.payment_history</code>. Method-breakdown keys are lowercased method strings (payments without a method map to <code>"unspecified"</code>). Sales rep is force-scoped to their own orders.</p>
+  <p class="label">Query</p>
+  <pre><code>year          (default: current)
+month         (1-12; default: current)
+sales_rep_id  (office/admin only)</code></pre>
+  <pre><code>{
+  "period": "2026-07",
+  "total_collected_this_month": 850000.0,
+  "today_collected_amount": 45000.0,
+  "pending_collection_amount": 240000.0,
+  "collections_count_today": 12,
+  "payment_methods_breakdown": {
+    "bank transfer": 500000.0, "upi": 250000.0, "cheque": 70000.0, "cash": 30000.0
+  }
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/leaderboard <span class="role">office/admin</span></h4>
+  <p><strong>Reshaped in Aug-2026.</strong> Ranked rep leaderboard for a calendar month. Sorted by <code>total_sales_volume</code> desc; <code>rank</code> is 1-indexed. <code>target_achievement_pct</code> is 0 for reps without a RepTarget doc that month. Reps are excluded from the response entirely if they have no orders and no visits in the window.</p>
+  <p class="label">Query</p>
+  <pre><code>year   (default: current)
+month  (default: current)</code></pre>
+  <pre><code>{
+  "period": "2026-07",
+  "rankings": [
+    { "rank": 1, "sales_rep_id": "...", "sales_rep_name": "Rahul",
+      "total_sales_volume": 680000, "orders_count": 42,
+      "target_achievement_pct": 113.3 }
+  ]
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/districts-summary <span class="role">office/admin</span></h4>
+  <p>District-wise breakdown of approved stores, this month's revenue (counted-status orders only), and total credit exposure (sum of <code>credit_used</code>). Sorted by monthly revenue desc.</p>
+  <pre><code>{
+  "total_districts": 14,
+  "districts": [
+    { "district_name": "Ernakulam", "stores_count": 45,
+      "total_monthly_revenue": 850000, "total_credit_exposure": 320000 }
+  ]
+}</code></pre>
+</div>
+
+<div class="callout">
+  <strong>List endpoint filters (verified).</strong>
+  <ul>
+    <li><code>GET /api/stores</code> — <code>status</code>, <code>credit_change_status</code>, <code>search</code> (name / location / gst_number / code), <code>page</code>, <code>page_size</code> (≤ 200)</li>
+    <li><code>GET /api/orders</code> — <code>status</code>, <code>payment_status</code>, <code>store_id</code>, <code>sales_rep_id</code> (office/admin only), <code>search</code> (order code / store name / rep name), <code>over_credit_approved</code>, <code>page</code>, <code>page_size</code> (≤ 200)</li>
+    <li><code>GET /api/inventory</code> — <code>low_stock</code>, <code>category_id</code>, <code>product_id</code>, <code>search</code>, <code>page</code>, <code>page_size</code> (≤ 200)</li>
+  </ul>
+</div>
+
 <h2 id="analytics">Analytics</h2>
 <p>Live aggregation over the existing orders + visits collections — no materialised rollup collection, no staleness. Only orders in <code>accepted / packing / out_for_delivery / delivered</code> count towards revenue (pending_admin_approval and cancelled are excluded).</p>
 

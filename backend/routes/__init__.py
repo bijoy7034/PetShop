@@ -9,6 +9,7 @@ from routes.health import router as health_router
 from routes.notifications import router as notifications_router
 from routes.inventory import router as inventory_router
 from routes.orders import router as orders_router
+from routes.payments import router as payments_router
 from routes.products import router as products_router
 from routes.rep_targets import router as rep_targets_router
 from routes.sales_achievements import router as sales_achievements_router
@@ -29,6 +30,7 @@ router.include_router(inventory_router)
 router.include_router(stores_router)
 router.include_router(visits_router)
 router.include_router(orders_router)
+router.include_router(payments_router)
 router.include_router(rep_targets_router)
 router.include_router(analytics_router)
 router.include_router(sales_achievements_router)

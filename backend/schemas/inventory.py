@@ -50,3 +50,11 @@ class InventoryListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class InventorySummary(BaseModel):
+    total_variants_count: int
+    total_inventory_valuation: float
+    out_of_stock_count: int
+    low_stock_count: int
+    optimal_stock_count: int

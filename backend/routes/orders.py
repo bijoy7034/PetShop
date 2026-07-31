@@ -53,6 +53,10 @@ def _visible(user, order):
 @router.get("", response_model=OrderListResponse)
 async def list_orders(
     store_id: str | None = Query(None),
+    sales_rep_id: str | None = Query(
+        None,
+        description="Office/admin only; sales_rep is force-scoped to their own orders.",
+    ),
     status_filter: str | None = Query(None, alias="status"),
     payment_status: str | None = Query(None),
     over_credit_approved: bool | None = Query(
@@ -60,19 +64,25 @@ async def list_orders(
         description="Filter for orders approved despite exceeding the store's "
                     "credit limit. true = show exposure list; false = exclude.",
     ),
+    search: str | None = Query(
+        None,
+        description="Case-insensitive substring across order code / store name / store code / rep name.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current=Depends(require_any_user),
 ):
     user = current["user"]
-    sales_rep_id = None if _is_office(user) else user["_id"]
+    # Sales rep force-scoped to themselves; office/admin can pass any rep.
+    effective_rep = sales_rep_id if _is_office(user) else user["_id"]
     skip = (page - 1) * page_size
     items, total = OrderRepository.list(
-        sales_rep_id=sales_rep_id,
+        sales_rep_id=effective_rep,
         store_id=store_id,
         status=status_filter,
         payment_status=payment_status,
         over_credit_approved=over_credit_approved,
+        search=search,
         skip=skip,
         limit=page_size,
     )
