@@ -207,13 +207,14 @@ async def rep_target_achievement(
 async def leaderboard_endpoint(
     year: int | None = Query(None, ge=2000, le=2100),
     month: int | None = Query(None, ge=1, le=12),
-    _=Depends(require_office),
+    _=Depends(require_any_user),
 ):
     """Ranked rep leaderboard for a calendar month. Sorted by
     total_sales_volume descending; ranks are 1-indexed. Each entry
     includes orders_count and target_achievement_pct (0 when the rep
-    has no RepTarget for that month). Office/admin only — sales rep
-    doesn't get the cross-rep view.
+    has no RepTarget for that month). Accessible to every authenticated
+    user — sales reps see the same rankings as office/admin so they
+    know where they stand.
 
     `year` + `month` default to the current calendar month.
     """

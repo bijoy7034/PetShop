@@ -1258,8 +1258,8 @@ sales_rep_id  (office/admin only)</code></pre>
 </div>
 
 <div class="endpoint">
-  <h4><span class="method GET">GET</span> /api/analytics/leaderboard <span class="role">office/admin</span></h4>
-  <p><strong>Reshaped in Aug-2026.</strong> Ranked rep leaderboard for a calendar month. Sorted by <code>total_sales_volume</code> desc; <code>rank</code> is 1-indexed. <code>target_achievement_pct</code> is 0 for reps without a RepTarget doc that month. Reps are excluded from the response entirely if they have no orders and no visits in the window.</p>
+  <h4><span class="method GET">GET</span> /api/analytics/leaderboard <span class="role">any user</span></h4>
+  <p><strong>Reshaped in Aug-2026.</strong> Ranked rep leaderboard for a calendar month. Sorted by <code>total_sales_volume</code> desc; <code>rank</code> is 1-indexed. <code>target_achievement_pct</code> is 0 for reps without a RepTarget doc that month. Reps are excluded from the response entirely if they have no orders and no visits in the window. Every authenticated user can read it — sales reps see the same rankings as office/admin.</p>
   <p class="label">Query</p>
   <pre><code>year   (default: current)
 month  (default: current)</code></pre>
