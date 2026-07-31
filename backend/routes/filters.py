@@ -68,7 +68,12 @@ async def get_filters(current=Depends(require_any_user)):
         achievement_periods=[e.value for e in AchievementPeriod],
         achievement_metrics=[e.value for e in AchievementMetric],
         achievement_progress_statuses=[e.value for e in AchievementProgressStatus],
-        user_roles=[e.value for e in Role],
+        user_roles=[
+            e.value for e in Role
+            # Hide 'developer' from every non-developer caller so no
+            # frontend surface tempts an admin to filter for it.
+            if e.value != Role.DEVELOPER.value or user["role"] == Role.DEVELOPER.value
+        ],
     )
 
 

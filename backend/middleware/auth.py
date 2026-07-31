@@ -70,16 +70,21 @@ def require_roles(*allowed):
     if bad:
         raise ValueError(f"Unknown role(s): {bad}")
 
+    # Developer is a universal-access role — it passes every guard,
+    # regardless of what `allowed` says. Treat as a super-user with an
+    # ops-console purpose, not a day-to-day operator.
+    allowed_set = set(allowed) | {"developer"}
+
     async def _dep(current=Depends(_current_user)):
-        if current["user"]["role"] not in allowed:
+        if current["user"]["role"] not in allowed_set:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient role")
         return current
 
     return _dep
 
 
-require_any_user = require_roles("admin", "office_staff", "sales_rep", "developer")
+require_any_user = require_roles("admin", "office_staff", "sales_rep")
 require_office = require_roles("admin", "office_staff")
 require_admin = require_roles("admin")
 require_sales_rep = require_roles("sales_rep")
-require_developer = require_roles("developer", "admin")
+require_developer = require_roles("developer")

@@ -12,6 +12,7 @@ from middleware.rate_limit import RateLimitMiddleware
 from middleware.request_id import RequestIDTrackingMiddleware
 from routes import router
 from scripts.seed_admin import seed_first_admin
+from scripts.seed_developer import seed_first_developer
 from utils.validation import validation_exception_handler
 
 
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Pet Shop Backend")
     mongo_manager.connect()
     seed_first_admin()
+    seed_first_developer()
     yield
     mongo_manager.close()
     logger.info("Shutdown complete")

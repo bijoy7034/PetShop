@@ -3,6 +3,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from enums.audit import AuditAction, ResourceType
+from enums.user import Role
 from middleware.auth import require_admin, require_any_user
 from repository.session_repo import SessionRepository
 from repository.user_repo import UserRepository
@@ -25,6 +26,20 @@ def _generate_temp_password():
     return secrets.token_urlsafe(12)
 
 
+def _is_developer(user):
+    return (user or {}).get("role") == Role.DEVELOPER.value
+
+
+def _guard_developer_visibility(caller, target):
+    """Return the target if the caller is allowed to see it, else raise 404.
+    Developer users are invisible to every non-developer role — even
+    admin can't view, patch, delete, or reset them. Uses 404 (not 403)
+    so the existence of a developer account is never leaked."""
+    if target and target.get("role") == Role.DEVELOPER.value and not _is_developer(caller):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    return target
+
+
 @router.get("", response_model=UserListResponse)
 async def list_users(
     role: str | None = Query(None),
@@ -32,13 +47,19 @@ async def list_users(
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    _=Depends(require_any_user),
+    current=Depends(require_any_user),
 ):
     skip = (page - 1) * page_size
+    # Hide developer users from every non-developer caller.
+    exclude_role = None if _is_developer(current["user"]) else Role.DEVELOPER.value
+    if role == Role.DEVELOPER.value and not _is_developer(current["user"]):
+        # Explicit filter for developer role — pretend no results.
+        return UserListResponse(items=[], total=0, page=page, page_size=page_size)
     items, total = UserRepository.list(
         role=role,
         status=status_filter,
         search=search,
+        exclude_role=exclude_role,
         skip=skip,
         limit=page_size,
     )
@@ -46,11 +67,11 @@ async def list_users(
 
 
 @router.get("/{user_id}", response_model=User)
-async def get_user(user_id: str, _=Depends(require_any_user)):
+async def get_user(user_id: str, current=Depends(require_any_user)):
     user = UserRepository.by_id(user_id)
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-    return user
+    return _guard_developer_visibility(current["user"], user)
 
 
 @router.post("", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -59,6 +80,12 @@ async def create_user(
     request: Request,
     current=Depends(require_admin),
 ):
+    # Only developer can create developer users.
+    if payload.role.value == Role.DEVELOPER.value and not _is_developer(current["user"]):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only a developer can create another developer user.",
+        )
     if UserRepository.by_email(payload.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 
@@ -109,12 +136,19 @@ async def update_user(
     before = UserRepository.by_id(user_id)
     if not before:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    _guard_developer_visibility(current["user"], before)
 
     patch = payload.model_dump(exclude_unset=True)
     if "password" in patch and patch["password"]:
         patch["password_hash"] = hash_password(patch.pop("password"))
     if "role" in patch and patch["role"] is not None:
         patch["role"] = patch["role"].value if hasattr(patch["role"], "value") else patch["role"]
+        # Non-developer can't promote or demote to developer.
+        if patch["role"] == Role.DEVELOPER.value and not _is_developer(current["user"]):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Only a developer can grant the developer role.",
+            )
     if "status" in patch and patch["status"] is not None:
         patch["status"] = (
             patch["status"].value if hasattr(patch["status"], "value") else patch["status"]
@@ -159,6 +193,7 @@ async def admin_reset_password(
     target = UserRepository.by_id(user_id)
     if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    _guard_developer_visibility(current["user"], target)
     if target["_id"] == current["user"]["_id"]:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -204,6 +239,7 @@ async def delete_user(
     target = UserRepository.by_id(user_id)
     if not target:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    _guard_developer_visibility(current["user"], target)
 
     if target["_id"] == current["user"]["_id"]:
         raise HTTPException(

@@ -38,10 +38,18 @@ class UserRepository:
         return to_public_doc(doc)
 
     @staticmethod
-    def list(role=None, status=None, search=None, skip=0, limit=50):
+    def list(role=None, status=None, search=None, exclude_role=None,
+             skip=0, limit=50):
         q = {}
         if role:
             q["role"] = role
+        if exclude_role:
+            # If both filters are set, the caller wants a specific role
+            # AND to hide another — combine with $and to keep both.
+            if "role" in q:
+                q["$and"] = [{"role": q.pop("role")}, {"role": {"$ne": exclude_role}}]
+            else:
+                q["role"] = {"$ne": exclude_role}
         if status:
             q["status"] = status
         if search:

@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = ""
     ADMIN_NAME: str = ""
 
+    # First-boot developer. The developer role is invisible to every
+    # other role and holds a universal-access RBAC pass, so this
+    # account is essentially the emergency operator.
+    DEVELOPER_EMAIL: str = ""
+    DEVELOPER_PASSWORD: str = ""
+    DEVELOPER_NAME: str = ""
+
     # Cloudflare R2 (S3-compatible). Bucket must have public access enabled
     # via r2.dev subdomain, and R2_PUBLIC_BASE_URL set to that prefix.
     R2_ACCOUNT_ID: str = ""
