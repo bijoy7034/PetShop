@@ -20,6 +20,7 @@ from schemas.order import (
     OrderDelay,
     OrderListResponse,
     OrderReject,
+    OrderStats,
     PaymentCreate,
     PlaceOrderResponse,
 )
@@ -76,6 +77,25 @@ async def list_orders(
         limit=page_size,
     )
     return OrderListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/stats", response_model=OrderStats)
+async def order_stats(
+    rep_id: str | None = Query(
+        None,
+        description="Office/admin can pass any rep id; sales_rep is force-scoped to their own.",
+    ),
+    store_id: str | None = Query(None),
+    current=Depends(require_any_user),
+):
+    """Dashboard summary — total orders, total volume, and counts
+    grouped by status and payment_status. Every OrderStatus /
+    PaymentStatus key is present (zero-filled) so the frontend can
+    render its full grid without missing-key guards."""
+    user = current["user"]
+    # Sales rep is force-scoped to themselves regardless of the query.
+    effective_rep = rep_id if _is_office(user) else user["_id"]
+    return OrderRepository.stats(sales_rep_id=effective_rep, store_id=store_id)
 
 
 @router.get("/{order_id}", response_model=Order)

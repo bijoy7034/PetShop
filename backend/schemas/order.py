@@ -198,6 +198,21 @@ class OrderListResponse(BaseModel):
     page_size: int
 
 
+class OrderStats(BaseModel):
+    """Dashboard aggregation: totals + status breakdowns.
+
+    counts_by_status keys cover every value of OrderStatus (waiting_for_stock,
+    ready_to_submit, pending_admin_approval, placed, accepted, packing,
+    out_for_delivery, delivered, delayed, cancelled) — zero-filled when the
+    status has no orders. Same guarantee for counts_by_payment_status
+    (pending, partially_paid, paid).
+    """
+    total_orders: int
+    total_volume: float
+    counts_by_status: dict[str, int]
+    counts_by_payment_status: dict[str, int]
+
+
 class PlaceOrderResponse(BaseModel):
     """Wrapper returned by POST /orders. When the request has a mix of
     in-stock and out-of-stock lines the server splits it into two

@@ -105,3 +105,39 @@ class StoreListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class RepCreditMetrics(BaseModel):
+    total_credit_limit: float
+    total_utilized_credit: float
+    total_available_credit: float
+    overdue_stores_count: int
+    total_overdue_amount: float
+
+
+class RepStoreSummary(BaseModel):
+    """Assigned-store counts + rolled-up credit metrics for a rep."""
+    total_assigned_stores: int
+    approved_stores_count: int
+    pending_stores_count: int
+    rejected_stores_count: int
+    credit_metrics: RepCreditMetrics
+
+
+class CreditViolationsBreakdown(BaseModel):
+    limit_exceeded_count: int
+    period_overdue_count: int
+    both_exceeded_count: int
+
+
+class StoresCreditSummary(BaseModel):
+    """Portfolio credit view across approved stores.
+    `total_available_credit` may be negative when admin-approved
+    over-credit orders have pushed credit_used past credit_limit."""
+    total_customers: int
+    total_credit_limit_sum: float
+    total_outstanding_balance: float
+    total_available_credit: float
+    total_overdue_amount: float
+    violating_stores_count: int
+    violations_breakdown: CreditViolationsBreakdown

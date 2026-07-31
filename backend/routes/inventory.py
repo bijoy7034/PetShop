@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from enums.audit import AuditAction, ResourceType
 from middleware.auth import require_any_user, require_office
 from repository.inventory_repo import InventoryRepository
+from schemas.analytics import LowStockReport
 from schemas.inventory import (
     Inventory,
     InventoryListResponse,
@@ -30,6 +31,22 @@ async def list_inventory(
     return InventoryListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
+
+
+@router.get("/low-stock-report", response_model=LowStockReport)
+async def low_stock_report(
+    category_id: str | None = Query(None),
+    search: str | None = Query(None),
+    _=Depends(require_any_user),
+):
+    """Rich low-stock report used for the inventory CSV export.
+    Includes both variants at/below reorder_level AND variants at
+    zero on-hand. Each row is a joined inventory + product + variant
+    view — no client-side joins required to render the sheet."""
+    items = InventoryRepository.low_stock_items(
+        category_id=category_id, search=search,
+    )
+    return {"total_items": len(items), "items": items}
 
 
 @router.get("/{inv_id}", response_model=Inventory)

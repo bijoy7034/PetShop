@@ -6,10 +6,15 @@ from enums.user import Role
 from middleware.auth import require_admin, require_any_user, require_office
 from repository.store_repo import StoreRepository
 from repository.user_repo import UserRepository
-from schemas.analytics import RecommendedProductsResponse
+from schemas.analytics import (
+    CreditViolationsReport,
+    RecommendedProductsResponse,
+    StoreCreditReport,
+)
 from schemas.store import (
     CreditLimitPropose,
     CreditLimitReject,
+    RepStoreSummary,
     Store,
     StoreApprove,
     StoreAssign,
@@ -17,6 +22,7 @@ from schemas.store import (
     StoreListResponse,
     StoreReject,
     StoreUpdate,
+    StoresCreditSummary,
 )
 from services import rep_analytics_service as analytics
 from services.audit_service import record
@@ -55,12 +61,80 @@ async def list_stores(
     return StoreListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/rep-summary", response_model=RepStoreSummary)
+async def rep_store_summary(
+    rep_id: str | None = Query(
+        None,
+        description="Office/admin can pass any rep id; sales_rep is force-scoped to their own.",
+    ),
+    current=Depends(require_any_user),
+):
+    """Assigned-store counts + rolled-up credit metrics for a rep's
+    book of business. Overdue amount comes from underlying orders — an
+    order is overdue when its payment_due_date < now and it isn't fully
+    paid. If a sales_rep calls this, `rep_id` is force-scoped to their
+    own id regardless of what they pass."""
+    user = current["user"]
+    effective_rep = rep_id if _is_office(user) else user["_id"]
+    return StoreRepository.rep_summary(rep_id=effective_rep)
+
+
+@router.get("/credit-violations-report", response_model=CreditViolationsReport)
+async def credit_violations_report(
+    district: str | None = Query(None),
+    search: str | None = Query(None),
+    _=Depends(require_office),
+):
+    """Detailed per-store violation queue with computed health_score
+    (0-100, higher = healthier). Sorted worst-first."""
+    return StoreRepository.credit_violations_report(
+        district=district, search=search)
+
+
+@router.get("/credit-summary", response_model=StoresCreditSummary)
+async def stores_credit_summary(
+    district: str | None = Query(None),
+    search: str | None = Query(None),
+    _=Depends(require_office),
+):
+    """Portfolio credit view across every approved store. Office/admin
+    only — sales reps don't see the cross-portfolio number.
+    `violations_breakdown` splits stores into three buckets:
+      - limit_exceeded_count: credit_used > credit_limit but no overdue
+      - period_overdue_count: overdue payments but within credit limit
+      - both_exceeded_count: both conditions true simultaneously"""
+    return StoreRepository.credit_summary(district=district, search=search)
+
+
 @router.get("/{store_id}", response_model=Store)
 async def get_store(store_id: str, current=Depends(require_any_user)):
     store = StoreRepository.by_id(store_id)
     if not store or not _visible(current["user"], store):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
     return store
+
+
+from datetime import datetime as _dt  # noqa: E402
+
+
+@router.get("/{store_id}/credit-report", response_model=StoreCreditReport)
+async def store_credit_report(
+    store_id: str,
+    start_date: _dt | None = Query(None),
+    end_date: _dt | None = Query(None),
+    current=Depends(require_any_user),
+):
+    """Per-store credit statement + transaction log. Sales rep can
+    only pull this for their assigned stores."""
+    store = StoreRepository.by_id(store_id)
+    if not store or not _visible(current["user"], store):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    report = StoreRepository.store_credit_report(
+        store_id, start_date=start_date, end_date=end_date,
+    )
+    if not report:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Store not found")
+    return report
 
 
 @router.post("", response_model=Store, status_code=status.HTTP_201_CREATED)

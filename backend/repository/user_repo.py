@@ -61,6 +61,13 @@ class UserRepository:
         return items, total
 
     @staticmethod
+    def count_by_role(role, *, active_only=True):
+        q = {"role": role}
+        if active_only:
+            q["status"] = "active"
+        return UserRepository._coll().count_documents(q)
+
+    @staticmethod
     def insert(email, name, role, password_hash, phone=None, must_change_password=False):
         now = now_utc()
         doc = {

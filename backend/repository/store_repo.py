@@ -42,6 +42,330 @@ class StoreRepository:
         )
 
     @staticmethod
+    def rep_summary(*, rep_id=None):
+        """Assigned-store counts + credit metrics for a rep's book of
+        business. If `rep_id` is None, returns the same aggregation
+        across every store (admin/office view)."""
+        q = {}
+        if rep_id:
+            q["sales_rep_id"] = rep_id
+        pipeline = [
+            {"$match": q},
+            {"$facet": {
+                "counts": [
+                    {"$group": {
+                        "_id": "$status",
+                        "count": {"$sum": 1},
+                    }},
+                ],
+                "totals": [
+                    {"$group": {
+                        "_id": None,
+                        "total_assigned_stores": {"$sum": 1},
+                        "total_credit_limit": {"$sum": {"$ifNull": ["$credit_limit", 0]}},
+                        "total_utilized_credit": {"$sum": {"$ifNull": ["$credit_used", 0]}},
+                    }},
+                ],
+                "store_ids": [
+                    {"$project": {"_id": 1}},
+                ],
+            }},
+        ]
+        res = list(StoreRepository._coll().aggregate(pipeline))[0]
+        totals = res["totals"][0] if res["totals"] else {
+            "total_assigned_stores": 0, "total_credit_limit": 0.0,
+            "total_utilized_credit": 0.0,
+        }
+
+        status_counts = {"pending": 0, "approved": 0, "rejected": 0}
+        for row in res["counts"]:
+            if row["_id"] in status_counts:
+                status_counts[row["_id"]] = int(row["count"])
+
+        store_ids = [str(r["_id"]) for r in res["store_ids"]]
+
+        # Overdue is a per-order concept — pull the aggregate from orders.
+        from repository.order_repo import OrderRepository
+        overdue = OrderRepository.overdue_aggregate(store_ids=store_ids)
+
+        credit_limit = float(totals["total_credit_limit"] or 0)
+        credit_used = float(totals["total_utilized_credit"] or 0)
+        return {
+            "total_assigned_stores": int(totals["total_assigned_stores"] or 0),
+            "approved_stores_count": status_counts["approved"],
+            "pending_stores_count": status_counts["pending"],
+            "rejected_stores_count": status_counts["rejected"],
+            "credit_metrics": {
+                "total_credit_limit": round(credit_limit, 2),
+                "total_utilized_credit": round(credit_used, 2),
+                "total_available_credit": round(credit_limit - credit_used, 2),
+                "overdue_stores_count": len(overdue["overdue_by_store"]),
+                "total_overdue_amount": overdue["total_overdue_amount"],
+            },
+        }
+
+    @staticmethod
+    def credit_summary(*, district=None, search=None):
+        """Portfolio credit view — total exposure, overdue, and a
+        breakdown of the ways a store can be in violation:
+          - limit_exceeded: credit_used > credit_limit but no overdue
+          - period_overdue: has overdue payments but within credit limit
+          - both_exceeded: both conditions true at once
+        Only approved stores contribute (pending/rejected have no
+        credit exposure)."""
+        q = {"status": "approved"}
+        if district:
+            q["district"] = district
+        if search:
+            q["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"location": {"$regex": search, "$options": "i"}},
+                {"gst_number": {"$regex": search, "$options": "i"}},
+            ]
+
+        pipeline = [
+            {"$match": q},
+            {"$facet": {
+                "totals": [
+                    {"$group": {
+                        "_id": None,
+                        "total_customers": {"$sum": 1},
+                        "total_credit_limit_sum": {"$sum": {"$ifNull": ["$credit_limit", 0]}},
+                        "total_outstanding_balance": {"$sum": {"$ifNull": ["$credit_used", 0]}},
+                    }},
+                ],
+                "limit_exceeded_ids": [
+                    {"$match": {
+                        "$expr": {"$gt": [
+                            {"$ifNull": ["$credit_used", 0]},
+                            {"$ifNull": ["$credit_limit", 0]},
+                        ]}
+                    }},
+                    {"$project": {"_id": 1}},
+                ],
+                "store_ids": [
+                    {"$project": {"_id": 1}},
+                ],
+            }},
+        ]
+        res = list(StoreRepository._coll().aggregate(pipeline))[0]
+        totals = res["totals"][0] if res["totals"] else {
+            "total_customers": 0,
+            "total_credit_limit_sum": 0.0,
+            "total_outstanding_balance": 0.0,
+        }
+
+        limit_exceeded_ids = {str(r["_id"]) for r in res["limit_exceeded_ids"]}
+        store_ids = [str(r["_id"]) for r in res["store_ids"]]
+
+        from repository.order_repo import OrderRepository
+        overdue = OrderRepository.overdue_aggregate(store_ids=store_ids)
+        overdue_ids = set(overdue["overdue_by_store"].keys())
+
+        both = limit_exceeded_ids & overdue_ids
+        limit_only = limit_exceeded_ids - overdue_ids
+        overdue_only = overdue_ids - limit_exceeded_ids
+
+        credit_sum = float(totals["total_credit_limit_sum"] or 0)
+        outstanding = float(totals["total_outstanding_balance"] or 0)
+
+        return {
+            "total_customers": int(totals["total_customers"] or 0),
+            "total_credit_limit_sum": round(credit_sum, 2),
+            "total_outstanding_balance": round(outstanding, 2),
+            "total_available_credit": round(credit_sum - outstanding, 2),
+            "total_overdue_amount": overdue["total_overdue_amount"],
+            "violating_stores_count": len(limit_exceeded_ids | overdue_ids),
+            "violations_breakdown": {
+                "limit_exceeded_count": len(limit_only),
+                "period_overdue_count": len(overdue_only),
+                "both_exceeded_count": len(both),
+            },
+        }
+
+    @staticmethod
+    def credit_violations_report(*, district=None, search=None):
+        """Detailed row-per-store list of every store in credit
+        violation — either over its limit, has overdue payments, or
+        both. Includes a computed health_score (0-100, higher is
+        better) so the frontend can sort/rank the queue."""
+        from repository.order_repo import OrderRepository
+
+        q = {"status": "approved"}
+        if district:
+            q["district"] = district
+        if search:
+            q["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"location": {"$regex": search, "$options": "i"}},
+                {"gst_number": {"$regex": search, "$options": "i"}},
+            ]
+        approved_stores = list(StoreRepository._coll().find(q))
+        store_ids = [str(s["_id"]) for s in approved_stores]
+        overdue = OrderRepository.overdue_aggregate(store_ids=store_ids)
+        overdue_by_store = overdue["overdue_by_store"]
+
+        rows = []
+        for s in approved_stores:
+            limit = float(s.get("credit_limit") or 0)
+            used = float(s.get("credit_used") or 0)
+            sid = str(s["_id"])
+            overdue_amount = float(overdue_by_store.get(sid, 0))
+            is_over_limit = used > limit + 1e-6
+            is_overdue = overdue_amount > 0
+            if not (is_over_limit or is_overdue):
+                continue
+
+            if is_over_limit and is_overdue:
+                vtype = "both_exceeded"
+            elif is_over_limit:
+                vtype = "limit_exceeded"
+            else:
+                vtype = "period_overdue"
+
+            # Health score: 100 baseline; over-limit and overdue each
+            # dock a proportional slice (up to 50 each).
+            health = 100.0
+            if is_over_limit and limit > 0:
+                over_pct = (used - limit) / limit * 100
+                health -= min(50.0, over_pct)
+            if is_overdue:
+                overdue_pct = overdue_amount / max(1.0, used) * 100
+                health -= min(50.0, overdue_pct)
+
+            rows.append({
+                "store_id": sid,
+                "store_code": s.get("code"),
+                "store_name": s.get("name"),
+                "district": s.get("district"),
+                "sales_rep_id": s.get("sales_rep_id"),
+                "sales_rep_name": s.get("sales_rep_name"),
+                "credit_limit": round(limit, 2),
+                "outstanding_balance": round(used, 2),
+                "available_credit": round(limit - used, 2),
+                "overdue_amount": round(overdue_amount, 2),
+                "violation_type": vtype,
+                "health_score": int(max(0, health)),
+            })
+        rows.sort(key=lambda r: (r["health_score"], -r["overdue_amount"]))
+        return {
+            "total_violating_stores": len(rows),
+            "total_overdue_sum": round(sum(r["overdue_amount"] for r in rows), 2),
+            "stores": rows,
+        }
+
+    @staticmethod
+    def store_credit_report(store_id, *, start_date=None, end_date=None):
+        """Per-store credit statement + interleaved transaction log.
+        Every order create is an `order_invoice` event; every recorded
+        payment is a `payment_received` event. Events are sorted by
+        date and stamped with the running outstanding balance after
+        the event."""
+        from repository.order_repo import OrderRepository
+
+        store = StoreRepository.by_id(store_id)
+        if not store:
+            return None
+
+        # Pull every order for the store — orders repo already has
+        # `list` with a store_id filter, but we need everything, not
+        # paginated. Query directly.
+        oq = {"store_id": store_id}
+        if start_date or end_date:
+            oq["created_at"] = {}
+            if start_date:
+                oq["created_at"]["$gte"] = start_date
+            if end_date:
+                oq["created_at"]["$lte"] = end_date
+        orders = list(
+            OrderRepository._coll().find(oq).sort("created_at", 1)
+        )
+
+        # Build event list.
+        events = []
+        for o in orders:
+            oid = str(o["_id"])
+            events.append({
+                "transaction_id": f"invoice:{oid}",
+                "date": o.get("created_at"),
+                "type": "order_invoice",
+                "reference_code": o.get("code"),
+                "amount": float(o.get("total") or 0),
+                "sign": +1,   # increases outstanding
+                "status": o.get("status"),
+                "payment_status": o.get("payment_status"),
+            })
+            for i, p in enumerate(o.get("payment_history") or []):
+                events.append({
+                    "transaction_id": f"payment:{oid}:{i}",
+                    "date": p.get("at"),
+                    "type": "payment_received",
+                    "reference_code": p.get("method") or o.get("code"),
+                    "amount": float(p.get("amount") or 0),
+                    "sign": -1,
+                    "note": p.get("notes"),
+                })
+        # Filter events by date range too (payments may fall outside
+        # the order's own created_at window).
+        if start_date or end_date:
+            events = [
+                e for e in events
+                if (not start_date or e["date"] >= start_date)
+                and (not end_date or e["date"] <= end_date)
+            ]
+        events.sort(key=lambda e: (e["date"] or e["transaction_id"]))
+
+        # Compute running balance.
+        balance = 0.0
+        out_events = []
+        for e in events:
+            balance += e["sign"] * e["amount"]
+            out_events.append({
+                "transaction_id": e["transaction_id"],
+                "date": e["date"],
+                "type": e["type"],
+                "reference_code": e["reference_code"],
+                "amount": round(e["amount"], 2),
+                "balance_after": round(max(0.0, balance), 2),
+            })
+
+        # Live snapshot (from the store doc + overdue).
+        overdue = OrderRepository.overdue_aggregate(store_ids=[store_id])
+        overdue_amount = float(overdue["overdue_by_store"].get(store_id, 0))
+
+        return {
+            "store_id": store_id,
+            "store_code": store.get("code"),
+            "store_name": store.get("name"),
+            "district": store.get("district"),
+            "sales_rep_name": store.get("sales_rep_name"),
+            "credit_limit": float(store.get("credit_limit") or 0),
+            "outstanding_balance": float(store.get("credit_used") or 0),
+            "available_credit": store.get("available_credit", 0),
+            "overdue_amount": round(overdue_amount, 2),
+            "transactions": out_events,
+        }
+
+    @staticmethod
+    def pending_credit_change_count():
+        return StoreRepository._coll().count_documents(
+            {"credit_change_status": CreditChangeStatus.PENDING.value}
+        )
+
+    @staticmethod
+    def count_by_status(status):
+        return StoreRepository._coll().count_documents({"status": status})
+
+    @staticmethod
+    def active_districts_count():
+        """Distinct districts across approved stores."""
+        vals = StoreRepository._coll().distinct(
+            "district",
+            {"status": "approved", "district": {"$nin": [None, ""]}},
+        )
+        return len([v for v in vals if v])
+
+    @staticmethod
     def districts_for_rep(sales_rep_id):
         """Distinct set of districts across all stores currently assigned
         to this rep. Empty list if the rep has no stores yet."""

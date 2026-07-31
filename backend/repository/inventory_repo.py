@@ -290,6 +290,92 @@ class InventoryRepository:
         InventoryRepository._coll().delete_many({"product_id": product_id})
 
     @staticmethod
+    def low_stock_items(*, category_id=None, search=None):
+        """Rich low-stock report: joins each inventory row with product +
+        variant info so the CSV/UI can render deficit, last-updated
+        actor, and thresholds without extra round-trips. Includes both
+        low-stock (available <= reorder_level, reorder > 0) AND
+        out-of-stock (available == 0) rows.
+
+        Filter by category_id (matches the product's category_id) or a
+        case-insensitive substring against product name / variant SKU."""
+        from repository.product_repo import ProductRepository
+
+        # Base: every inventory row with reorder_level > 0.
+        inv_q = {"reorder_level": {"$gt": 0}}
+        rows = list(
+            InventoryRepository._coll().find(inv_q)
+        )
+        items = []
+        for r in rows:
+            on_hand = int(r.get("quantity_on_hand") or 0)
+            reserved = int(r.get("reserved_quantity") or 0)
+            available = on_hand - reserved
+            reorder = int(r.get("reorder_level") or 0)
+            if available > reorder:
+                continue
+
+            product = ProductRepository.by_id(r.get("product_id"))
+            if not product:
+                continue
+            if category_id and product.get("category_id") != category_id:
+                continue
+            variant = next(
+                (v for v in product.get("variants") or []
+                 if v["id"] == r.get("variant_id")),
+                None,
+            )
+            variant_label = r.get("variant_label")
+            variant_sku = variant.get("sku") if variant else None
+            if search:
+                needle = search.lower()
+                haystacks = [
+                    (product.get("name") or "").lower(),
+                    (variant_label or "").lower(),
+                    (variant_sku or "").lower(),
+                    (product.get("code") or "").lower(),
+                ]
+                if not any(needle in h for h in haystacks):
+                    continue
+
+            stock_status = "Out of Stock" if available <= 0 else "Low Stock Alert"
+            items.append({
+                "product_id": r.get("product_id"),
+                "product_code": product.get("code"),
+                "product_name": product.get("name"),
+                "variant_id": r.get("variant_id"),
+                "variant_code": variant.get("code") if variant else None,
+                "variant_label": variant_label,
+                "variant_sku": variant_sku,
+                "category_id": product.get("category_id"),
+                "category_name": product.get("category_name"),
+                "available_qty": max(0, available),
+                "quantity_on_hand": on_hand,
+                "reserved_qty": reserved,
+                "reorder_level": reorder,
+                "deficit_qty": max(0, reorder - available),
+                "stock_status": stock_status,
+                "last_updated_at": r.get("last_stock_updated_at") or r.get("updated_at"),
+                "last_updated_by": r.get("last_stock_updated_by_name"),
+            })
+        # Sort worst deficit first.
+        items.sort(key=lambda x: (-x["deficit_qty"], x["product_name"] or ""))
+        return items
+
+    @staticmethod
+    def low_stock_count():
+        """Cheap counter for the admin/staff dashboard tiles."""
+        return InventoryRepository._coll().count_documents({
+            "$expr": {"$and": [
+                {"$gt": ["$reorder_level", 0]},
+                {"$lte": [
+                    {"$subtract": ["$quantity_on_hand", "$reserved_quantity"]},
+                    "$reorder_level",
+                ]},
+            ]},
+        })
+
+    @staticmethod
     def list(product_id=None, low_stock=None, skip=0, limit=50):
         q = {}
         if product_id:

@@ -166,3 +166,134 @@ class DistrictAnalyticsDetail(BaseModel):
     by_category: list[CategoryRevenue]
     top_stores: list[DistrictStore]
     by_rep: list[DistrictRep]
+
+
+class UserGreeting(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    role: str | None = None
+
+
+class AdminPendingCounts(BaseModel):
+    pending_order_approvals: int
+    pending_store_approvals: int
+    credit_limit_requests: int
+    low_stock_variants: int
+
+
+class AdminHighLevelKPIs(BaseModel):
+    total_monthly_revenue: float
+    active_districts_count: int
+    total_stores_reached: int
+    total_active_reps: int
+
+
+class AdminDashboard(BaseModel):
+    user_greeting: UserGreeting
+    pending_action_counts: AdminPendingCounts
+    high_level_kpis: AdminHighLevelKPIs
+
+
+class RepStoreCounts(BaseModel):
+    approved_stores: int
+    pending_stores: int
+    rejected_stores: int
+
+
+class RepOrderCounts(BaseModel):
+    pending_approval: int
+    in_transit: int
+    delivered_this_month: int
+
+
+class RepTargetProgress(BaseModel):
+    target_amount: float
+    achieved_amount: float
+    percentage: float
+
+
+class RepDashboard(BaseModel):
+    user_greeting: UserGreeting
+    store_counts: RepStoreCounts
+    order_counts: RepOrderCounts
+    target_progress: RepTargetProgress
+
+
+class StaffOperationalQueue(BaseModel):
+    pending_store_reviews: int
+    credit_review_requests: int
+    orders_needing_packing: int
+    orders_ready_for_dispatch: int
+    low_stock_items: int
+
+
+class StaffDashboard(BaseModel):
+    operational_queue: StaffOperationalQueue
+
+
+class LowStockItem(BaseModel):
+    product_id: str
+    product_code: str | None = None
+    product_name: str
+    variant_id: str | None = None
+    variant_code: str | None = None
+    variant_label: str | None = None
+    variant_sku: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
+    available_qty: int
+    quantity_on_hand: int
+    reserved_qty: int
+    reorder_level: int
+    deficit_qty: int
+    stock_status: str
+    last_updated_at: datetime | None = None
+    last_updated_by: str | None = None
+
+
+class LowStockReport(BaseModel):
+    total_items: int
+    items: list[LowStockItem]
+
+
+class CreditViolationRow(BaseModel):
+    store_id: str
+    store_code: str | None = None
+    store_name: str | None = None
+    district: str | None = None
+    sales_rep_id: str | None = None
+    sales_rep_name: str | None = None
+    credit_limit: float
+    outstanding_balance: float
+    available_credit: float
+    overdue_amount: float
+    violation_type: str
+    health_score: int
+
+
+class CreditViolationsReport(BaseModel):
+    total_violating_stores: int
+    total_overdue_sum: float
+    stores: list[CreditViolationRow]
+
+
+class CreditReportTransaction(BaseModel):
+    transaction_id: str
+    date: datetime | None = None
+    type: str
+    reference_code: str | None = None
+    amount: float
+    balance_after: float
+
+
+class StoreCreditReport(BaseModel):
+    store_id: str
+    store_code: str | None = None
+    store_name: str | None = None
+    district: str | None = None
+    sales_rep_name: str | None = None
+    credit_limit: float
+    outstanding_balance: float
+    available_credit: float
+    overdue_amount: float
+    transactions: list[CreditReportTransaction]

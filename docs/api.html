@@ -175,6 +175,7 @@
     <li><a href="#visits">Visits</a></li>
     <li><a href="#orders">Orders</a></li>
     <li><a href="#images">Product images (R2)</a></li>
+    <li><a href="#dashboards">Dashboards &amp; reports</a></li>
     <li><a href="#analytics">Analytics</a></li>
     <li><a href="#filters">Filters</a></li>
     <li><a href="#rep-targets">Rep Targets</a></li>
@@ -1151,6 +1152,77 @@ R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_BASE_URL</pre>
 <div class="endpoint">
   <h4><span class="method DELETE">DELETE</span> /api/products/{product_id}/variants/{variant_id}/image <span class="role">office/admin</span></h4>
   <p>Clear the variant's image and delete the R2 object. Returns 404 if the variant has no image.</p>
+</div>
+
+<h2 id="dashboards">Dashboards &amp; reports</h2>
+<p>One-shot aggregations for the home screens plus rich-row report endpoints for CSV exports. Every counter is an indexed count query — safe to poll every few seconds if the frontend wants live tiles.</p>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/orders/stats <span class="role">any user</span></h4>
+  <p>Total orders + total_volume + counts_by_status + counts_by_payment_status. Every enum key is present, zero-filled — no missing-key guards needed on the frontend. Sales rep is force-scoped to their own orders regardless of <code>rep_id</code>.</p>
+  <p class="label">Query</p>
+  <pre><code>rep_id     (office/admin only; sales_rep ignores it)
+store_id   (optional)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/rep-summary <span class="role">any user</span></h4>
+  <p>Store counts (approved / pending / rejected) + rolled-up credit metrics (limit, used, available, overdue store count, overdue amount) for a rep's book of business. Overdue is derived from the orders collection — an order is overdue when <code>payment_due_date &lt; now</code> and it isn't fully paid.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/credit-summary <span class="role">office/admin</span></h4>
+  <p>Portfolio credit view across every approved store. <code>violations_breakdown</code> partitions violating stores into three mutually-exclusive buckets: over-limit only, overdue only, both.</p>
+  <p class="label">Query</p>
+  <pre><code>district   (optional)
+search     (optional; case-insensitive substring on name / location / gst_number)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/admin-dashboard <span class="role">admin</span></h4>
+  <p>Admin home in one call. Pending-action tiles (order approvals, store approvals, credit-limit requests, low-stock variants) plus high-level KPIs for the current calendar month (monthly revenue, active districts, distinct stores reached, active reps).</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/rep-dashboard <span class="role">any user</span></h4>
+  <p>Rep home in one call. Store counts, order counts (pending approval, in-transit = accepted+packing+out_for_delivery, delivered this month), and progress vs the rep's monthly target. Sales rep is force-scoped to themselves.</p>
+  <p class="label">Query</p>
+  <pre><code>rep_id  (office/admin can pass any; sales_rep is force-scoped)
+year    (defaults to current)
+month   (1-12; defaults to current)</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/analytics/staff-dashboard <span class="role">office/admin</span></h4>
+  <p>Office-staff home. Operational work queue: pending store reviews, credit review requests, orders needing packing (=accepted), orders ready for dispatch (=packing), low-stock items.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/inventory/low-stock-report <span class="role">any user</span></h4>
+  <p>Rich rows joining inventory + product + variant for the low-stock CSV. Includes both variants at/below <code>reorder_level</code> AND variants at zero on-hand. Sorted worst-deficit first.</p>
+  <p class="label">Row shape</p>
+  <pre><code>{
+  "product_id": "...", "product_name": "Pedigree", "product_code": "PRD-0001",
+  "variant_id": "...", "variant_label": "3kg", "variant_sku": "PED-3K",
+  "category_name": "Dog Food",
+  "available_qty": 3, "quantity_on_hand": 5, "reserved_qty": 2,
+  "reorder_level": 10, "deficit_qty": 7,
+  "stock_status": "Low Stock Alert",   // or "Out of Stock" when available == 0
+  "last_updated_at": "...", "last_updated_by": "Priya"
+}</code></pre>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/credit-violations-report <span class="role">office/admin</span></h4>
+  <p>Detailed row-per-store list of every store either over its credit limit, past due on payments, or both. Includes a computed <code>health_score</code> (0-100, higher = healthier) so the queue can be ranked worst-first. <code>violation_type</code> ∈ <code>limit_exceeded | period_overdue | both_exceeded</code>.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/stores/{store_id}/credit-report <span class="role">any user (scoped)</span></h4>
+  <p>Per-store credit statement + interleaved transaction log. Every order creation is an <code>order_invoice</code> event; every recorded payment is a <code>payment_received</code> event. Events are date-sorted and stamped with the running <code>balance_after</code>. Sales rep can only pull reports for their assigned stores.</p>
+  <p class="label">Query</p>
+  <pre><code>start_date  (ISO datetime, optional)
+end_date    (ISO datetime, optional)</code></pre>
 </div>
 
 <h2 id="analytics">Analytics</h2>

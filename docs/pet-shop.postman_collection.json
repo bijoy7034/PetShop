@@ -2147,6 +2147,148 @@
           ]
         },
         {
+          "name": "Dashboards & Reports",
+          "description": "Home-screen aggregations + CSV/report endpoints. Every counter here is a single indexed count query — safe to poll every few seconds if needed.",
+          "item": [
+            {
+              "name": "Order stats (all statuses + payment breakdown)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/orders/stats",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "orders", "stats"],
+                  "query": [
+                    { "key": "rep_id", "value": "{{rep_user_id}}", "disabled": true },
+                    { "key": "store_id", "value": "{{store_id}}", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Store rep-summary (assigned stores + credit metrics)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/rep-summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "rep-summary"],
+                  "query": [
+                    { "key": "rep_id", "value": "{{rep_user_id}}", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Store credit-summary (portfolio credit view, office/admin)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/credit-summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "credit-summary"],
+                  "query": [
+                    { "key": "district", "value": "Bengaluru South", "disabled": true },
+                    { "key": "search", "value": "alpha", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Admin dashboard (pending actions + KPIs)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/admin-dashboard",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "admin-dashboard"]
+                }
+              }
+            },
+            {
+              "name": "Rep dashboard (store + order counts + target progress)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/rep-dashboard",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "rep-dashboard"],
+                  "query": [
+                    { "key": "rep_id", "value": "{{rep_user_id}}", "disabled": true },
+                    { "key": "year", "value": "2026", "disabled": true },
+                    { "key": "month", "value": "7", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Staff dashboard (operational queue)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/analytics/staff-dashboard",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "analytics", "staff-dashboard"]
+                }
+              }
+            },
+            {
+              "name": "Low-stock report (rich rows for CSV export)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/inventory/low-stock-report",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "inventory", "low-stock-report"],
+                  "query": [
+                    { "key": "category_id", "value": "{{category_dog_id}}", "disabled": true },
+                    { "key": "search", "value": "pedigree", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Credit violations report (with health_score)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/credit-violations-report",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "credit-violations-report"],
+                  "query": [
+                    { "key": "district", "value": "Bengaluru South", "disabled": true },
+                    { "key": "search", "value": "alpha", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Per-store credit report (statement + tx log)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/stores/{{store_id}}/credit-report",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "stores", "{{store_id}}", "credit-report"],
+                  "query": [
+                    { "key": "start_date", "value": "2026-07-01T00:00:00Z", "disabled": true },
+                    { "key": "end_date", "value": "2026-07-31T23:59:59Z", "disabled": true }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Analytics",
           "description": "Rep analytics + leaderboard. Sales rep can view their own; office/admin can view any rep. Leaderboard is office/admin only.",
           "item": [

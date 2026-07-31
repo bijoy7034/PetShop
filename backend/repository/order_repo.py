@@ -43,6 +43,153 @@ class OrderRepository:
         return _with_outstanding(OrderRepository._coll().find_one({"_id": oid}))
 
     @staticmethod
+    def count_by_status(status, *, sales_rep_id=None):
+        q = {"status": status}
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        return OrderRepository._coll().count_documents(q)
+
+    @staticmethod
+    def count_by_statuses(statuses, *, sales_rep_id=None):
+        q = {"status": {"$in": list(statuses)}}
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        return OrderRepository._coll().count_documents(q)
+
+    @staticmethod
+    def revenue_for_month(year, month, *, sales_rep_id=None):
+        """Sum of order.total for orders CREATED in the given month
+        whose status is 'accepted+' (revenue actually booked)."""
+        from datetime import datetime, timedelta, timezone
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        end = (datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=timezone.utc)
+               if month < 12 else datetime(year + 1, 1, 1, tzinfo=timezone.utc))
+        end -= timedelta(microseconds=1)
+        counted = ("accepted", "packing", "out_for_delivery", "delivered")
+        q = {
+            "status": {"$in": list(counted)},
+            "created_at": {"$gte": start, "$lte": end},
+        }
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        cur = OrderRepository._coll().aggregate([
+            {"$match": q},
+            {"$group": {"_id": None, "revenue": {"$sum": "$total"}}},
+        ])
+        rows = list(cur)
+        return float(rows[0]["revenue"]) if rows else 0.0
+
+    @staticmethod
+    def delivered_count_for_month(year, month, *, sales_rep_id=None):
+        from datetime import datetime, timedelta, timezone
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        end = (datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=timezone.utc)
+               if month < 12 else datetime(year + 1, 1, 1, tzinfo=timezone.utc))
+        end -= timedelta(microseconds=1)
+        q = {
+            "status": "delivered",
+            "delivered_at": {"$gte": start, "$lte": end},
+        }
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        return OrderRepository._coll().count_documents(q)
+
+    @staticmethod
+    def distinct_stores_reached():
+        """Distinct store_ids across every counted order (proxy for
+        'stores that actually did business with us')."""
+        counted = ("accepted", "packing", "out_for_delivery", "delivered")
+        return len(OrderRepository._coll().distinct(
+            "store_id", {"status": {"$in": list(counted)}}
+        ))
+
+    @staticmethod
+    def stats(*, sales_rep_id=None, store_id=None):
+        """Dashboard aggregation: total orders, total volume, counts by
+        status and by payment_status. Every status/payment_status key
+        from the enum is present in the response, zero-filled — the
+        frontend can render the full grid without guarding against
+        missing keys."""
+        q = {}
+        if sales_rep_id:
+            q["sales_rep_id"] = sales_rep_id
+        if store_id:
+            q["store_id"] = store_id
+        pipeline = [
+            {"$match": q},
+            {"$facet": {
+                "totals": [
+                    {"$group": {
+                        "_id": None,
+                        "total_orders": {"$sum": 1},
+                        "total_volume": {"$sum": "$total"},
+                    }},
+                ],
+                "by_status": [
+                    {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+                ],
+                "by_payment": [
+                    {"$group": {"_id": "$payment_status", "count": {"$sum": 1}}},
+                ],
+            }},
+        ]
+        res = list(OrderRepository._coll().aggregate(pipeline))[0]
+        totals = res["totals"][0] if res["totals"] else {"total_orders": 0, "total_volume": 0.0}
+
+        counts_by_status = {s.value: 0 for s in OrderStatus}
+        for row in res["by_status"]:
+            counts_by_status[row["_id"]] = int(row["count"])
+
+        counts_by_payment_status = {s.value: 0 for s in PaymentStatus}
+        for row in res["by_payment"]:
+            if row["_id"]:
+                counts_by_payment_status[row["_id"]] = int(row["count"])
+
+        return {
+            "total_orders": int(totals["total_orders"] or 0),
+            "total_volume": float(totals["total_volume"] or 0),
+            "counts_by_status": counts_by_status,
+            "counts_by_payment_status": counts_by_payment_status,
+        }
+
+    @staticmethod
+    def overdue_aggregate(store_ids=None, *, now=None):
+        """Sum of outstanding across every unpaid order past
+        payment_due_date, optionally scoped to a set of store ids.
+        Returns {overdue_store_ids: set(...), total_overdue_amount: float}."""
+        now = now or now_utc()
+        q = {
+            "payment_due_date": {"$lt": now},
+            "payment_status": {"$ne": "paid"},
+        }
+        if store_ids is not None:
+            q["store_id"] = {"$in": list(store_ids)}
+        pipeline = [
+            {"$match": q},
+            {"$project": {
+                "store_id": 1,
+                "outstanding": {"$max": [
+                    0, {"$subtract": [
+                        {"$ifNull": ["$total", 0]},
+                        {"$ifNull": ["$amount_paid", 0]},
+                    ]}
+                ]},
+            }},
+            {"$group": {
+                "_id": "$store_id",
+                "store_overdue": {"$sum": "$outstanding"},
+            }},
+        ]
+        overdue_by_store = {r["_id"]: float(r["store_overdue"] or 0)
+                            for r in OrderRepository._coll().aggregate(pipeline)}
+        # Only stores whose overdue sum > 0.
+        overdue_by_store = {k: v for k, v in overdue_by_store.items() if v > 0}
+        return {
+            "overdue_by_store": overdue_by_store,
+            "total_overdue_amount": round(sum(overdue_by_store.values()), 2),
+        }
+
+    @staticmethod
     def list(sales_rep_id=None, store_id=None, status=None, payment_status=None,
              over_credit_approved=None, skip=0, limit=50):
         q = {}
