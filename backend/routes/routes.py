@@ -1,5 +1,5 @@
 """Delivery route optimization + bulk dispatch."""
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from enums.audit import AuditAction, ResourceType
 from enums.order import ORDER_TRANSITIONS, OrderStatus
@@ -9,14 +9,79 @@ from schemas.route import (
     BulkDispatchRequest,
     BulkDispatchResponse,
     OptimizedRoute,
+    PlannedRoute,
+    PlannedRouteListResponse,
     RouteOptimizeRequest,
+    RoutePlanRequest,
 )
-from services import notification_service
+from services import notification_service, route_service
 from services.audit_service import record
 from services.route_service import create_route
 
 
 router = APIRouter(prefix="/delivery", tags=["delivery"])
+
+
+@router.post("/plan", response_model=PlannedRoute)
+async def plan_delivery_route(
+    payload: RoutePlanRequest,
+    request: Request,
+    current=Depends(require_office),
+):
+    """Office-friendly route planning. Takes raw addresses (lat/lng
+    required per stop) and returns an optimized visit order.
+
+    Note: routes are computed against straight-line ("as-the-crow-flies")
+    haversine distance, not real road networks. `total_distance_km` is
+    the great-circle sum; `total_duration_minutes` is a rough estimate
+    at ~25 km/h. `polyline` stays null. Good enough to rank stops in
+    urban runs; swap to OSRM/Mapbox later for road-aware routing."""
+    result = route_service.plan_route(
+        start=payload.start.model_dump(),
+        stops=[s.model_dump() for s in payload.stops],
+        driver_id=payload.driver_id,
+        driver_name=payload.driver_name,
+        label=payload.label,
+        actor=current["user"],
+    )
+    record(
+        AuditAction.ROUTE_CREATE,
+        ResourceType.DELIVERY_ROUTE,
+        resource_id=result["_id"],
+        actor=current["user"],
+        after={
+            "label": payload.label,
+            "stops": len(result["stops"]),
+            "total_distance_km": result["total_distance_km"],
+            "driver_id": result.get("driver_id"),
+        },
+        request=request,
+    )
+    return result
+
+
+@router.get("/routes", response_model=PlannedRouteListResponse)
+async def list_delivery_routes(
+    driver_id: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _=Depends(require_office),
+):
+    """Saved delivery routes, most-recent first."""
+    items, total = route_service.list_routes(
+        driver_id=driver_id, page=page, page_size=page_size,
+    )
+    return PlannedRouteListResponse(
+        items=items, total=total, page=page, page_size=page_size,
+    )
+
+
+@router.get("/routes/{route_id}", response_model=PlannedRoute)
+async def get_delivery_route(route_id: str, _=Depends(require_office)):
+    route = route_service.by_id(route_id)
+    if not route:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Route not found")
+    return route
 
 
 @router.post("/optimize", response_model=OptimizedRoute)

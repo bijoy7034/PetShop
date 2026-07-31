@@ -121,7 +121,6 @@ class RepCreditMetrics(BaseModel):
 
 
 class RepStoreSummary(BaseModel):
-    """Assigned-store counts + rolled-up credit metrics for a rep."""
     total_assigned_stores: int
     approved_stores_count: int
     pending_stores_count: int

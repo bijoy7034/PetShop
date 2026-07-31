@@ -1820,6 +1820,35 @@ page, page_size (page_size ≤ 200)</code></pre>
 </div>
 
 <div class="endpoint">
+  <h4><span class="method POST">POST</span> /api/delivery/plan <span class="role">office/admin</span></h4>
+  <p>Office-friendly variant of <code>/optimize</code>. Takes raw addresses (lat/lng required per stop; store_id/order_id optional) and returns an optimized visit order plus <code>total_distance_km</code> and <code>total_duration_minutes</code>. Persisted with the human <code>label</code> so office can find it later.</p>
+  <p class="label">Body</p>
+  <pre><code>{
+  "label": "Bengaluru South run — 2026-08-01",
+  "start": { "lat": 12.9716, "lng": 77.5946 },
+  "stops": [
+    { "lat": 12.99, "lng": 77.63, "address": "MG Rd",  "label": "Alpha", "note": "Ring bell" },
+    { "lat": 12.95, "lng": 77.58, "address": "T Nagar", "store_id": "…", "order_id": "…" }
+  ],
+  "driver_id": "drv-1", "driver_name": "Ravi"
+}</code></pre>
+  <p>Response includes each stop with a 1-indexed <code>sequence</code>.</p>
+  <div class="callout" style="margin-top: 10px;">
+    <strong>Routing quality.</strong> This uses <em>haversine</em> (great-circle) distance — as-the-crow-flies, not road-aware. <code>total_distance_km</code> is straight-line sum; <code>total_duration_minutes</code> is a rough estimate at ~25 km/h; <code>polyline</code> stays <code>null</code>. The stop ordering is good for urban runs; the numbers read ~20-30% short of real road distance. Swap in OSRM or Mapbox later to get real network routing (backend contract stays the same).
+  </div>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/delivery/routes <span class="role">office/admin</span></h4>
+  <p>Saved delivery routes, most-recent first. Optional <code>driver_id</code> filter. Paginated.</p>
+</div>
+
+<div class="endpoint">
+  <h4><span class="method GET">GET</span> /api/delivery/routes/{id} <span class="role">office/admin</span></h4>
+  <p>One saved route with all stops in optimized order.</p>
+</div>
+
+<div class="endpoint">
   <h4><span class="method POST">POST</span> /api/delivery/optimize <span class="role">office/admin</span></h4>
   <p>Greedy nearest-neighbor TSP heuristic over the provided stops from <code>start</code>. Persists the generated route with driver info + timestamps and returns ordered stops with a 1-indexed <code>sequence</code>, total distance (km), and estimated duration (minutes at ~25 km/h). Polyline hook is present but not yet wired to OSRM.</p>
   <p class="label">Body</p>

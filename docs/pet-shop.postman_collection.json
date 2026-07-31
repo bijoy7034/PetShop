@@ -57,6 +57,7 @@
     { "key": "achievement_id", "value": "", "type": "string" },
     { "key": "progress_id", "value": "", "type": "string" },
     { "key": "notification_id", "value": "", "type": "string" },
+    { "key": "delivery_route_id", "value": "", "type": "string" },
     { "key": "store_lat", "value": "12.9716", "type": "string" },
     { "key": "store_lng", "value": "77.5946", "type": "string" }
   ],
@@ -2935,6 +2936,62 @@
                 ],
                 "body": { "mode": "raw", "raw": "{\n  \"year\": 2026,\n  \"month\": 8,\n  \"overall_target\": 500000,\n  \"category_targets\": [],\n  \"on_conflict\": \"skip\"\n}" },
                 "url": { "raw": "{{base_url}}/api/rep-targets/bulk", "host": ["{{base_url}}"], "path": ["api", "rep-targets", "bulk"] }
+              }
+            },
+            {
+              "name": "Delivery — plan route (raw addresses, crow-fly)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const j = pm.response.json();",
+                      "if (j && j._id) pm.collectionVariables.set('delivery_route_id', j._id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-CSRF-Token", "value": "{{csrf_token}}" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"label\": \"Bengaluru South run — 2026-08-01\",\n  \"start\": { \"lat\": 12.9716, \"lng\": 77.5946 },\n  \"stops\": [\n    { \"lat\": 13.0827, \"lng\": 77.5877, \"label\": \"Yeshwantpur A\", \"address\": \"Yeshwantpur\" },\n    { \"lat\": 12.9345, \"lng\": 77.6114, \"label\": \"BTM Layout B\",  \"address\": \"BTM Layout\" },\n    { \"lat\": 12.9698, \"lng\": 77.7500, \"label\": \"Whitefield C\",  \"address\": \"Whitefield\" },\n    { \"lat\": 12.9098, \"lng\": 77.5511, \"label\": \"Jayanagar D\",   \"address\": \"Jayanagar\" }\n  ],\n  \"driver_id\": \"drv-1\",\n  \"driver_name\": \"Ravi\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/api/delivery/plan", "host": ["{{base_url}}"], "path": ["api", "delivery", "plan"] }
+              }
+            },
+            {
+              "name": "Delivery — list saved routes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/delivery/routes?page=1&page_size=50",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "delivery", "routes"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "page_size", "value": "50" },
+                    { "key": "driver_id", "value": "drv-1", "disabled": true }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Delivery — get one saved route",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/delivery/routes/{{delivery_route_id}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "delivery", "routes", "{{delivery_route_id}}"]
+                }
               }
             },
             {
