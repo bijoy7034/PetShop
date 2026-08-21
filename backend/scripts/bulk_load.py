@@ -191,14 +191,107 @@ def main():
     )
     print(f"[images] {len(files)} image file(s) in {images_dir}")
 
-    # ---------- 3. Match + upload ----------
     from bson import ObjectId
     from helpers.datetime import now_utc
     if not args.dry_run:
         from utils import r2_storage
 
+    def _upload_or_exit(doc, f):
+        """Upload one file to R2 under the product's prefix; exits the
+        script with a clear message if R2 creds are missing."""
+        try:
+            return r2_storage.upload_image(
+                key_prefix=f"products/{doc.get('code') or doc['_id']}",
+                data=f.read_bytes(),
+                content_type=_CONTENT_TYPES[f.suffix.lower()],
+                filename=f.name,
+            )
+        except r2_storage.R2NotConfiguredError as e:
+            sys.exit(
+                f"\n[error] {e}\nPass --r2-endpoint / --r2-access-key / "
+                f"--r2-secret-key / --r2-bucket / --r2-public-url or fill "
+                f"them into backend/.env. (Products were already imported — "
+                f"re-run with --skip-excel to only do images.)"
+            )
+
+    def _is_url(s):
+        return bool(s) and (s.startswith("http://") or s.startswith("https://"))
+
+    # ---------- 2b. Resolve sheet-referenced filenames → R2 links ----------
+    # The Excel's Images / Variant Image columns may contain bare
+    # filenames (e.g. "PED-AD.png") instead of URLs. The import stores
+    # them verbatim, so here we find each referenced file in the images
+    # folder, upload it, and REPLACE the filename with the R2 link.
+    files_by_name = {f.name.lower(): f for f in files}
+    consumed = set()   # files used by the resolve phase — phase 3 skips them
+    resolved = missing_refs = 0
+    if not (args.dry_run and not args.skip_excel):
+        for doc in products_coll.find({}):
+            imgs = doc.get("images") or []
+            if any(not _is_url(i) for i in imgs):
+                new_list = []
+                changed = False
+                for entry in imgs:
+                    if _is_url(entry):
+                        new_list.append(entry)
+                        continue
+                    f = files_by_name.get((entry or "").strip().lower())
+                    if not f:
+                        print(f"[resolve]   ✗ '{doc['name']}': sheet image "
+                              f"'{entry}' not found in {images_dir}")
+                        missing_refs += 1
+                        new_list.append(entry)
+                        continue
+                    consumed.add(f.name)
+                    if args.dry_run:
+                        print(f"[resolve]   ✓ '{doc['name']}': {entry} → R2 (dry run)")
+                        resolved += 1
+                        new_list.append(entry)
+                        continue
+                    result = _upload_or_exit(doc, f)
+                    new_list.append(result["url"])
+                    changed = True
+                    resolved += 1
+                    print(f"[resolve]   ✓ '{doc['name']}': {entry} → {result['url']}")
+                if changed:
+                    products_coll.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"images": new_list, "updated_at": now_utc()}},
+                    )
+            for v in doc.get("variants") or []:
+                entry = v.get("image")
+                if not entry or _is_url(entry):
+                    continue
+                f = files_by_name.get(entry.strip().lower())
+                if not f:
+                    print(f"[resolve]   ✗ '{doc['name']}' variant: sheet image "
+                          f"'{entry}' not found in {images_dir}")
+                    missing_refs += 1
+                    continue
+                consumed.add(f.name)
+                if args.dry_run:
+                    print(f"[resolve]   ✓ '{doc['name']}' variant: {entry} → R2 (dry run)")
+                    resolved += 1
+                    continue
+                result = _upload_or_exit(doc, f)
+                products_coll.update_one(
+                    {"_id": doc["_id"], "variants._id": v["_id"]},
+                    {"$set": {"variants.$.image": result["url"],
+                              "updated_at": now_utc()}},
+                )
+                resolved += 1
+                print(f"[resolve]   ✓ '{doc['name']}' variant: {entry} → {result['url']}")
+        if resolved or missing_refs:
+            print(f"[resolve] replaced {resolved} sheet filename(s) with R2 links; "
+                  f"{missing_refs} referenced file(s) missing from the folder")
+
+    # ---------- 3. Match remaining folder files by filename ----------
     uploaded = skipped = unmatched = 0
     for f in files:
+        if f.name in consumed:
+            print(f"[images]   - {f.name}: already uploaded via sheet reference")
+            skipped += 1
+            continue
         key = _normalize(_stem_for_match(f))
         target_variant = by_sku.get(key)
         target_product = by_key.get(key)
@@ -224,20 +317,7 @@ def main():
             uploaded += 1
             continue
 
-        try:
-            result = r2_storage.upload_image(
-                key_prefix=f"products/{doc.get('code') or doc['_id']}",
-                data=f.read_bytes(),
-                content_type=_CONTENT_TYPES[f.suffix.lower()],
-                filename=f.name,
-            )
-        except r2_storage.R2NotConfiguredError as e:
-            sys.exit(
-                f"\n[error] {e}\nPass --r2-endpoint / --r2-access-key / "
-                f"--r2-secret-key / --r2-bucket / --r2-public-url or fill "
-                f"them into backend/.env. (Products were already imported — "
-                f"re-run with --skip-excel to only do images.)"
-            )
+        result = _upload_or_exit(doc, f)
         if variant_id is not None:
             products_coll.update_one(
                 {"_id": doc["_id"], "variants._id": variant_id},
