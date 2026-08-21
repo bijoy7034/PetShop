@@ -343,7 +343,7 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
   <tr><td><code>Description</code></td><td>no</td><td></td></tr>
   <tr><td><code>Brand</code></td><td>no</td><td></td></tr>
   <tr><td><code>Unit</code></td><td>no</td><td>Unit of sale (e.g. <code>kg</code>, <code>pcs</code>, <code>box</code>).</td></tr>
-  <tr><td><code>Base Price</code></td><td>one of Base Price / Variant Price</td><td>Falls back to Variant Price if absent.</td></tr>
+  <tr><td><code>Base Price</code></td><td>no</td><td>Falls back to Variant Price; if both are missing the product still imports at <code>base_price=0</code> with a per-row <code>warning</code> in the response (fix the price via PATCH before selling).</td></tr>
   <tr><td><code>Discount Price</code></td><td>no</td><td>Product-level default discount.</td></tr>
   <tr><td><code>Images</code></td><td>no</td><td>Comma-separated or newline-separated URLs.</td></tr>
 </table>
@@ -368,10 +368,16 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
   "created": 3,
   "updated": 0,
   "failed": 0,
-  "rows": [ /* one entry per sheet row */ ],
+  "warnings": 1,
+  "rows": [
+    { "row": 2, "action": "created", "product_name": "Pedigree Adult", "warning": null },
+    { "row": 3, "action": "created", "product_name": "Mystery Chew",
+      "warning": "base_price missing — defaulted to 0; set the real price before activating sales" }
+  ],
   "categories_created":    ["Dog Food", "Toys"],
   "subcategories_created": ["Dry kibble (in Dog Food)", "Chew (in Toys)"]
 }</code></pre>
+<p class="muted"><strong>Lenient by design:</strong> missing images → product imports without images. Missing <code>Base Price</code> AND <code>Variant Price</code> → product imports at <code>base_price=0</code> with a per-row <code>warning</code>. Only a missing <code>Product Name</code> or unknown taxonomy fails a row.</p>
 
 <h3>3c) Set opening stock / reorder level (office)</h3>
 <p>Variants are auto-created with <code>quantity_on_hand = 0</code>. Load opening stock with the adjust endpoint (which now writes to the inventory collection), and set reorder levels for low-stock alerts:</p>

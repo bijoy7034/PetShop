@@ -165,12 +165,16 @@ class BulkUploadRow(BaseModel):
     action: str
     product_name: str | None = None
     error: str | None = None
+    # Non-fatal issue on an otherwise-successful row — e.g. missing
+    # base_price defaulted to 0. The row still imports.
+    warning: str | None = None
 
 
 class BulkUploadResponse(BaseModel):
     created: int
     updated: int
     failed: int
+    warnings: int = 0
     rows: list[BulkUploadRow]
     # Auto-created taxonomy so the caller can review what got added on
     # their behalf and catch accidental typos.

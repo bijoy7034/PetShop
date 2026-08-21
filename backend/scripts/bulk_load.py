@@ -136,7 +136,7 @@ def main():
         from services.product_service import import_products
         summary = import_products(excel_path.read_bytes())
         print(f"[excel] created={summary['created']} updated={summary['updated']} "
-              f"failed={summary['failed']}")
+              f"failed={summary['failed']} warnings={summary.get('warnings', 0)}")
         if summary["categories_created"]:
             print(f"[excel] categories auto-created: {summary['categories_created']}")
         if summary["subcategories_created"]:
@@ -144,6 +144,8 @@ def main():
         for r in summary["rows"]:
             if r.get("error"):
                 print(f"[excel]   row {r['row']}: {r['action']} — {r['error']}")
+            elif r.get("warning"):
+                print(f"[excel]   row {r['row']}: WARNING — {r['warning']}")
 
     if not images_dir:
         print("[images] no --images-dir given; done.")

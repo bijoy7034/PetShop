@@ -256,8 +256,8 @@ def parse_products_workbook(file_bytes):
         return [], "Header row must contain a 'name' column."
     if "category" not in headers:
         return [], "Header row must contain a 'category' column."
-    if "variant_price" not in headers and "base_price" not in headers:
-        return [], "Header row must contain 'base_price' or 'variant_price'."
+    # Price columns are optional — products without any price import at
+    # base_price=0 with a per-row warning so office can fix them later.
 
     out = []
     for idx, row in enumerate(rows_iter, start=2):
@@ -303,6 +303,7 @@ def import_products(file_bytes):
             "created": 0,
             "updated": 0,
             "failed": 0,
+            "warnings": 0,
             "rows": [{"row": 1, "action": "header_error", "error": header_error}],
             "categories_created": [],
             "subcategories_created": [],
@@ -323,7 +324,7 @@ def import_products(file_bytes):
         by_name[key]["variants"].append(r)
 
     reports = []
-    created = updated = failed = 0
+    created = updated = failed = warnings = 0
     cats_created: list[str] = []
     subs_created: list[str] = []
 
@@ -353,17 +354,17 @@ def import_products(file_bytes):
             # variant per product) still work without a separate base_price
             # column.
             base_price = head["variant_price"]
+        warning = None
         if base_price is None:
-            reports.append(
-                {
-                    "row": head["_row"],
-                    "action": "failed",
-                    "product_name": key,
-                    "error": "base_price (or variant_price) is required",
-                }
+            # Lenient import: a missing price shouldn't block the whole
+            # product. Default to 0 and surface a warning so office can
+            # fix the price via PATCH before the product goes on sale.
+            base_price = 0.0
+            warning = (
+                "base_price missing — defaulted to 0; set the real price "
+                "before activating sales"
             )
-            failed += len(bundle["variants"])
-            continue
+            warnings += 1
 
         variants_payload = []
         for r in bundle["variants"]:
@@ -426,7 +427,8 @@ def import_products(file_bytes):
             updated += 1
             for r in bundle["variants"]:
                 reports.append(
-                    {"row": r["_row"], "action": "updated", "product_name": key}
+                    {"row": r["_row"], "action": "updated", "product_name": key,
+                     "warning": warning}
                 )
         else:
             p = ProductRepository.insert(
@@ -456,13 +458,15 @@ def import_products(file_bytes):
             created += 1
             for r in bundle["variants"]:
                 reports.append(
-                    {"row": r["_row"], "action": "created", "product_name": key}
+                    {"row": r["_row"], "action": "created", "product_name": key,
+                     "warning": warning}
                 )
 
     return {
         "created": created,
         "updated": updated,
         "failed": failed,
+        "warnings": warnings,
         "rows": reports,
         "categories_created": cats_created,
         "subcategories_created": subs_created,
