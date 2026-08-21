@@ -149,13 +149,32 @@ def main():
             elif r.get("warning"):
                 print(f"[excel]   row {r['row']}: WARNING — {r['warning']}")
 
+    from config.config import settings
+    products_coll = db[settings.PRODUCTS_COLL]
+
+    def _is_url(s):
+        return bool(s) and (s.startswith("http://") or s.startswith("https://"))
+
     if not images_dir:
-        print("[images] no --images-dir given; done.")
+        # Without a folder we can't resolve filename references — but
+        # don't stay silent about them: bare filenames in images[] are
+        # useless to the frontend.
+        refs = 0
+        for doc in products_coll.find({}):
+            refs += sum(1 for i in doc.get("images") or [] if not _is_url(i))
+            refs += sum(
+                1 for v in doc.get("variants") or []
+                if v.get("image") and not _is_url(v["image"])
+            )
+        if refs:
+            print(f"[images] WARNING — {refs} image reference(s) in the DB are "
+                  f"filenames, not URLs. Re-run with --images-dir <folder> "
+                  f"--skip-excel to upload them to R2 and fix the links.")
+        else:
+            print("[images] no --images-dir given; done.")
         return
 
     # ---------- 2. Build the match index from Mongo ----------
-    from config.config import settings
-    products_coll = db[settings.PRODUCTS_COLL]
 
     by_key = {}          # normalized identifier -> product doc
     by_sku = {}          # normalized sku -> (product doc, variant _id)
@@ -217,9 +236,6 @@ def main():
                 f"re-run with --skip-excel to only do images.)"
             )
 
-    def _is_url(s):
-        return bool(s) and (s.startswith("http://") or s.startswith("https://"))
-
     # ---------- 2b. Resolve sheet-referenced filenames → R2 links ----------
     # The Excel's Images / Variant Image columns may contain bare
     # filenames (e.g. "PED-AD.png") instead of URLs. The import stores
@@ -228,6 +244,23 @@ def main():
     files_by_name = {f.name.lower(): f for f in files}
     consumed = set()   # files used by the resolve phase — phase 3 skips them
     resolved = missing_refs = 0
+
+    def _find_file(entry):
+        """Look up a sheet-referenced filename in the folder. Tolerates a
+        missing extension ('PED-AD' matches PED-AD.png) and ignores any
+        path prefix the sheet author left in ('img/PED-AD.png')."""
+        e = (entry or "").strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
+        if not e:
+            return None
+        hit = files_by_name.get(e)
+        if hit:
+            return hit
+        if "." not in e:
+            for ext in _IMAGE_EXTS:
+                hit = files_by_name.get(e + ext)
+                if hit:
+                    return hit
+        return None
     if not (args.dry_run and not args.skip_excel):
         for doc in products_coll.find({}):
             imgs = doc.get("images") or []
@@ -238,7 +271,7 @@ def main():
                     if _is_url(entry):
                         new_list.append(entry)
                         continue
-                    f = files_by_name.get((entry or "").strip().lower())
+                    f = _find_file(entry)
                     if not f:
                         print(f"[resolve]   ✗ '{doc['name']}': sheet image "
                               f"'{entry}' not found in {images_dir}")
@@ -265,7 +298,7 @@ def main():
                 entry = v.get("image")
                 if not entry or _is_url(entry):
                     continue
-                f = files_by_name.get(entry.strip().lower())
+                f = _find_file(entry)
                 if not f:
                     print(f"[resolve]   ✗ '{doc['name']}' variant: sheet image "
                           f"'{entry}' not found in {images_dir}")
