@@ -240,11 +240,20 @@ def _resolve_taxonomy(category_name, subcategory_name, cats_created, subs_create
     return cat, sub, None
 
 
-def parse_products_workbook(file_bytes):
+def parse_products_workbook(file_bytes, sheet_name=None):
     """Return (rows, header_error). Each row is a dict with the raw fields
-    plus a `_row` number (1-indexed like Excel)."""
+    plus a `_row` number (1-indexed like Excel). `sheet_name` picks a
+    specific worksheet; default is the workbook's active sheet."""
     wb = load_workbook(filename=BytesIO(file_bytes), read_only=True, data_only=True)
-    ws = wb.active
+    if sheet_name:
+        if sheet_name not in wb.sheetnames:
+            return [], (
+                f"Sheet '{sheet_name}' not found. "
+                f"Available sheets: {', '.join(wb.sheetnames)}"
+            )
+        ws = wb[sheet_name]
+    else:
+        ws = wb.active
     rows_iter = ws.iter_rows(values_only=True)
     try:
         header_row = next(rows_iter)
@@ -296,8 +305,8 @@ def parse_products_workbook(file_bytes):
     return out, None
 
 
-def import_products(file_bytes):
-    rows, header_error = parse_products_workbook(file_bytes)
+def import_products(file_bytes, sheet_name=None):
+    rows, header_error = parse_products_workbook(file_bytes, sheet_name=sheet_name)
     if header_error:
         return {
             "created": 0,

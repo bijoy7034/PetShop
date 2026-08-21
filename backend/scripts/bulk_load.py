@@ -60,6 +60,7 @@ def _parse_args():
         description="Bulk-load products from Excel into Mongo and images into R2.",
     )
     p.add_argument("--excel", required=True, help="Path to the .xlsx workbook")
+    p.add_argument("--sheet", help="Worksheet name inside the workbook (default: active sheet)")
     p.add_argument("--images-dir", help="Folder of product images (optional)")
     p.add_argument("--mongo-uri", default=os.environ.get("MONGO_URI"),
                    help="Mongo connection string (default: $MONGO_URI)")
@@ -126,7 +127,8 @@ def main():
         print("[excel] skipped (--skip-excel)")
     elif args.dry_run:
         from services.product_service import parse_products_workbook
-        rows, header_error = parse_products_workbook(excel_path.read_bytes())
+        rows, header_error = parse_products_workbook(
+            excel_path.read_bytes(), sheet_name=args.sheet)
         if header_error:
             sys.exit(f"[excel] header error: {header_error}")
         names = {r["name"] for r in rows if r.get("name")}
@@ -134,7 +136,7 @@ def main():
               f"Nothing written.")
     else:
         from services.product_service import import_products
-        summary = import_products(excel_path.read_bytes())
+        summary = import_products(excel_path.read_bytes(), sheet_name=args.sheet)
         print(f"[excel] created={summary['created']} updated={summary['updated']} "
               f"failed={summary['failed']} warnings={summary.get('warnings', 0)}")
         if summary["categories_created"]:
@@ -172,7 +174,8 @@ def main():
     # image as unmatched on a fresh DB.
     if args.dry_run and not args.skip_excel:
         from services.product_service import parse_products_workbook
-        rows, _err = parse_products_workbook(excel_path.read_bytes())
+        rows, _err = parse_products_workbook(
+            excel_path.read_bytes(), sheet_name=args.sheet)
         for r in rows or []:
             phantom = {"_id": None, "name": r.get("name"),
                        "client_product_code": r.get("client_product_code"),

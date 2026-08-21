@@ -560,6 +560,11 @@ async def bulk_upload(
     request: Request,
     current=Depends(require_office),
     file: UploadFile = File(...),
+    sheet: str | None = Form(
+        default=None,
+        description="Worksheet name inside the workbook. Default: active sheet. "
+                    "Unknown name → header_error row listing available sheets.",
+    ),
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(
@@ -573,13 +578,14 @@ async def bulk_upload(
             f"File too large. Max is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
         )
 
-    summary = import_products(contents)
+    summary = import_products(contents, sheet_name=sheet)
     record(
         AuditAction.PRODUCT_BULK_UPLOAD,
         ResourceType.PRODUCT,
         actor=current["user"],
         after={
             "filename": file.filename,
+            "sheet": sheet,
             "created": summary["created"],
             "updated": summary["updated"],
             "failed": summary["failed"],

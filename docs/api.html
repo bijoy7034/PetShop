@@ -363,6 +363,7 @@ POST  /api/products/{product_id}/variants/{variant_id}/adjust-stock
   <tr><td><code>Reorder Level</code></td><td>Written to the inventory row for low-stock alerts.</td></tr>
 </table>
 <p>Rows sharing the same <code>name</code> are merged into one product with multiple variants. Both <code>Category</code> AND <code>Subcategory</code> are <strong>required</strong> per row. Unknown categories or subcategories are <strong>auto-created</strong> from the sheet — the response lists them in <code>categories_created</code> / <code>subcategories_created</code> so you can spot accidental typos.</p>
+<p><strong>Worksheet selection:</strong> pass an optional <code>sheet</code> form field with the worksheet name (multipart, next to <code>file</code>). Default is the workbook's active sheet. An unknown name returns a <code>header_error</code> row listing the available sheets. The <code>scripts/bulk_load.py</code> CLI takes the same thing as <code>--sheet</code>.</p>
 <p class="label">Response 200</p>
 <pre><code>{
   "created": 3,
